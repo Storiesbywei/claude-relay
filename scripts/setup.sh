@@ -3,9 +3,13 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-MCP_CONFIG="$HOME/Local_Dev/.mcp.json"
+MCP_CONFIG="$HOME/.claude/.mcp.json"
+
+# Allow custom relay URL (for remote/ngrok setups)
+RELAY_URL="${1:-http://localhost:4190}"
 
 echo "=== Claude Relay Setup ==="
+echo "Relay URL: $RELAY_URL"
 echo ""
 
 # 1. Check Bun
@@ -50,7 +54,7 @@ else:
         "command": "bun",
         "args": ["run", mcp_entry_point],
         "env": {
-            "RELAY_URL": "http://localhost:4190"
+            "RELAY_URL": "$RELAY_URL"
         }
     }
     with open(mcp_path, "w") as f:
@@ -65,8 +69,13 @@ bash "$PROJECT_DIR/hooks/install.sh"
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "To start the relay server:"
+echo "Relay URL configured: $RELAY_URL"
+echo ""
+echo "To start the relay server (host only):"
 echo "  cd $PROJECT_DIR && bun run dev:server"
+echo ""
+echo "To expose via ngrok (for remote workers):"
+echo "  ngrok http 4190"
 echo ""
 echo "Then in Claude Code, you'll have these tools:"
 echo "  relay_create_session  — Start a new sharing session"

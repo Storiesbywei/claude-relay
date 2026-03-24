@@ -1,6 +1,6 @@
 // === Claude Relay Dashboard v2 ===
 
-const API = "http://localhost:4190";
+const API = window.location.origin; // works with localhost, ngrok, any host
 
 const state = {
   mode: "director", // "director" | "peer"
