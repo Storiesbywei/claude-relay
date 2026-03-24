@@ -48,10 +48,10 @@ process.on("SIGINT", () => {
 
 const port = Number(process.env.RELAY_PORT || RELAY_PORT);
 
-console.log(`[relay] Claude Relay server starting on http://127.0.0.1:${port}`);
+console.log(`[relay] Claude Relay server starting on http://0.0.0.0:${port}`);
 
 export default {
   port,
-  hostname: "127.0.0.1",
+  hostname: "0.0.0.0",
   fetch: app.fetch,
 };
