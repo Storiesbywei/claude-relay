@@ -5,10 +5,20 @@ Inter-Claude knowledge relay — lets multiple Claude Code sessions (or a human 
 
 ## Quick Start
 ```bash
+# Docker (recommended)
+docker compose up -d                  # start relay on localhost:4190
+docker compose down                   # stop
+docker compose logs -f                # view logs
+
+# Without Docker
 bun install                           # install deps (from project root)
 bun run dev:server                    # start relay on localhost:4190
+
+# Worker setup (MCP registration + hooks)
+bash scripts/setup.sh                 # local worker
+bash scripts/setup.sh https://xxx.ngrok-free.app  # remote worker
+
 open http://localhost:4190            # dashboard UI
-bash scripts/setup.sh                 # full setup (MCP registration + hooks)
 ```
 
 ## Architecture
@@ -35,7 +45,11 @@ Monorepo (Bun workspaces)
 | `packages/mcp-server/src/tools/` | 6 MCP tools (session, send, approve, poll, status) |
 | `packages/mcp-server/src/approval/` | Approval queue + sensitive content scanner |
 | `hooks/relay-poll.sh` | Auto-poll on Claude Code Stop events |
+| `hooks/install.sh` | Add relay-poll hook to ~/.claude/settings.json |
 | `scripts/setup.sh` | One-command install (deps + MCP + hooks) |
+| `Dockerfile` | Multi-stage Bun Alpine image for relay server |
+| `docker-compose.yml` | Single-service compose (port 4190, RELAY_ORIGIN env) |
+| `.dockerignore` | Excludes mcp-server, hooks, scripts, docs from image |
 
 ## Server Endpoints
 ```
@@ -59,24 +73,46 @@ GET  /                               → dashboard UI
 | `relay_poll` | Fetch new messages (cursor auto-advances) |
 | `relay_status` | Overview: sessions, pending approvals, health |
 
+## Message Types (14 in constants.ts)
+Core (6 — exposed in relay_send): `architecture`, `api-docs`, `patterns`, `conventions`, `question`, `answer`
+Extended (3): `context`, `insight`, `task`
+Workspace (5 — Phase 3): `file_tree`, `file_change`, `file_read`, `terminal`, `status_update`
+
 ## Dashboard Modes
-- **Director mode** — Human types instructions, Claude worker responds. Single panel + input box.
-- **Peer mode** — Two Claude sessions exchange knowledge. Split-panel view with 3 simulation demos.
+- **Director mode** — Human types instructions, Claude worker responds. File tree sidebar + file viewer + input box.
+- **Peer mode** — Two Claude sessions exchange knowledge. Split-panel view with 4 simulation demos (Security Audit, Code Review, Bug Hunt, Workspace).
+
+## Limits (from constants.ts)
+| Constant | Value |
+|----------|-------|
+| `MAX_MESSAGE_SIZE` | 102,400 (100KB) |
+| `MAX_MESSAGES_PER_SESSION` | 200 |
+| `MAX_SESSIONS` | 50 |
+| `MAX_PARTICIPANTS` | 10 |
+| `MAX_TITLE_LENGTH` | 200 |
+| `MAX_TAGS` | 20 |
+| `MAX_TAG_LENGTH` | 50 |
+| `MAX_REFERENCES` | 50 |
+| `RATE_LIMIT_PER_MINUTE` | 30 |
+| `DEFAULT_TTL_MINUTES` | 60 |
+| `MAX_TTL_MINUTES` | 1440 (24h) |
+| `TTL_SWEEP_INTERVAL_MS` | 60,000 (1min) |
 
 ## Conventions
 - All messages validated with Zod before relay
 - Sensitive content scanner checks for API keys, tokens, paths before send
 - Bearer token auth on all relay/session endpoints
+- Server binds to 0.0.0.0 (network-accessible, not localhost-only)
+- CORS restricted to localhost + configured RELAY_ORIGIN env + ngrok domains
 - In-memory store — sessions expire via TTL (default 60min, max 24h)
 - Rate limit: 30 req/min per token
-- Max: 50 sessions, 10 participants, 200 messages per session
+- XSS protection: escapeHtml with quote escaping in dashboard
 
 ## Testing
 ```bash
-bun test                              # all tests
-bun test packages/relay-server/       # server tests only
 curl http://localhost:4190/health     # manual health check
 ```
+No automated tests exist yet. `bun test` is configured in package.json but no test files have been written.
 
 ## State Files
 - `~/.claude-relay/active-sessions.json` — MCP server persists active sessions

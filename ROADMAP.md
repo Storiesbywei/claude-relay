@@ -25,20 +25,36 @@ Google Docs for coding — a shared workspace where a director (human or cheap-p
 - [x] Mode toggle slider (Director / Peer)
 - [x] Director mode — single panel, message input, live polling
 - [x] Peer mode — split-panel, relay spine visualization
-- [x] 3 simulation scripts (Security Audit, Code Review, Bug Hunt)
+- [x] 3 simulation scripts (Security Audit, Code Review, Bug Hunt) — 4th (Workspace) added in Phase 3
 - [x] Session management in UI (create, join, copy invite token)
 - [x] SSE endpoint for live streaming
 - [x] Session persistence (localStorage)
 - [x] Connection status indicator
 
-## Phase 3: Shared Workspace View (NEXT)
-*Status: Planned*
+## Phase 3: Shared Workspace View (DONE)
+*Status: Complete and verified*
 
-- [ ] File tree sidebar — worker relays project structure snapshots
-- [ ] Live file changes — worker sends diffs as they edit
-- [ ] Syntax-highlighted code viewer in dashboard
-- [ ] File reference linking (click a file ref in chat → see the code)
-- [ ] Worker status indicator (idle, reading, writing, testing)
+- [x] File tree sidebar — worker relays project structure snapshots
+- [x] Live file changes — worker sends diffs as they edit
+- [x] Code viewer in dashboard (diff highlighting, line numbers)
+- [x] File reference linking (click a file ref in chat → see the code)
+- [x] Worker status indicator (idle, reading, writing, testing)
+- [x] Workspace simulation demo (4th simulation script)
+- [x] 5 new message types (file_tree, file_change, file_read, terminal, status_update)
+
+## Docker Support (DONE)
+*Status: Complete and verified*
+
+- [x] Dockerfile (oven/bun:1.3-alpine, multi-layer caching)
+- [x] docker-compose.yml (single-service, port 4190, RELAY_ORIGIN env)
+- [x] .dockerignore (excludes mcp-server, hooks, scripts, docs)
+
+## Security Hardening (DONE)
+*Status: Complete and verified*
+
+- [x] CORS restricted to localhost + RELAY_ORIGIN env + ngrok domains
+- [x] XSS protection — escapeHtml with quote escaping in dashboard
+- [x] Shell injection prevention — quoted heredoc in relay-poll.sh
 
 ## Phase 4: Multi-User & Persistence
 *Status: Future*
@@ -50,8 +66,11 @@ Google Docs for coding — a shared workspace where a director (human or cheap-p
 - [ ] Session bookmarks / save points
 
 ## Phase 5: Remote & Cloud
-*Status: Future*
+*Status: Partially done*
 
+- [x] Remote worker support via ngrok (setup.sh accepts custom URL)
+- [x] Dynamic API URL in dashboard (auto-detects origin)
+- [x] URL parameters for auto-joining (?session=...&token=...)
 - [ ] Deploy relay server to cloud (Fly.io / Railway)
 - [ ] Secure WebSocket transport (wss://)
 - [ ] End-to-end encryption for message content
