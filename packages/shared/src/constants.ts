@@ -26,6 +26,12 @@ export const MESSAGE_TYPES = [
   "context",
   "insight",
   "task",
+  // Phase 3: workspace awareness
+  "file_tree",      // worker sends project structure snapshot
+  "file_change",    // worker sends a file diff/edit
+  "file_read",      // worker shares file contents
+  "terminal",       // worker shares terminal output
+  "status_update",  // worker status (idle, reading, writing, testing)
 ] as const;
 
 // Patterns that suggest sensitive content

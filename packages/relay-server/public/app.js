@@ -325,6 +325,24 @@ async function sendDirectorMessage() {
 
 // --- Rendering ---
 function renderDirectorMessage(msg) {
+  // Handle workspace-aware message types
+  if (msg.type === "file_tree") {
+    handleFileTree(msg);
+    return;
+  }
+  if (msg.type === "file_change") {
+    handleFileChange(msg);
+    return;
+  }
+  if (msg.type === "file_read") {
+    handleFileRead(msg);
+    return;
+  }
+  if (msg.type === "status_update") {
+    handleStatusUpdate(msg);
+    return;
+  }
+
   const isMine = msg.sender_name === "Director" || msg.sender_name === "creator";
   const div = document.createElement("div");
   div.className = `message ${isMine ? "sent" : "received"}`;
@@ -542,6 +560,287 @@ directorTextarea.addEventListener("input", () => {
   directorTextarea.style.height = "auto";
   directorTextarea.style.height = Math.min(directorTextarea.scrollHeight, 120) + "px";
 });
+
+// ========== FILE TREE & WORKSPACE ==========
+
+const fileTree = $("#file-tree");
+const fileViewer = $("#file-viewer");
+const fileViewerPath = $("#file-viewer-path");
+const fileViewerContent = $("#file-viewer-content");
+const sidebar = $("#sidebar");
+const workerPill = $("#worker-pill");
+const workerDot = $("#worker-dot");
+const workerActivity = $("#worker-activity");
+
+// Current workspace state
+const workspace = {
+  tree: [],       // flat list of { path, type, indent, changed }
+  files: {},      // path → content cache
+  activeFile: null,
+};
+
+function handleFileTree(msg) {
+  // Parse file tree from content (one path per line, dirs end with /)
+  const lines = (msg.content || "").split("\n").filter(Boolean);
+  workspace.tree = lines.map((line) => {
+    const trimmed = line.replace(/^[\s│├└─]+/, "");
+    const indent = Math.floor((line.length - trimmed.length) / 2);
+    const isDir = trimmed.endsWith("/");
+    const name = isDir ? trimmed.slice(0, -1) : trimmed;
+    return { path: name, type: isDir ? "folder" : "file", indent, changed: false };
+  });
+  renderFileTree();
+  renderSystemMsg(directorMessages, `Worker shared project structure (${workspace.tree.length} items)`);
+}
+
+function handleFileChange(msg) {
+  // msg.content format: "path: <filepath>\n---\n<diff content>"
+  const lines = (msg.content || "").split("\n");
+  const pathLine = lines[0] || "";
+  const filePath = pathLine.replace(/^path:\s*/, "").trim();
+  const diffContent = lines.slice(2).join("\n");
+
+  // Mark file as changed in tree
+  for (const item of workspace.tree) {
+    if (item.path === filePath || filePath.endsWith(item.path)) {
+      item.changed = true;
+    }
+  }
+  renderFileTree();
+
+  // Cache the diff
+  workspace.files[filePath] = diffContent;
+
+  // Render file change message in chat
+  const div = document.createElement("div");
+  div.className = "message file-change received";
+  const preview = diffContent.split("\n").slice(0, 8).join("\n");
+  div.innerHTML = `
+    <div class="sender">${escapeHtml(msg.sender_name)}</div>
+    <span class="file-path" data-path="${escapeHtml(filePath)}">${escapeHtml(filePath)}</span>
+    <div class="diff-preview">${escapeHtml(preview)}${diffContent.split("\n").length > 8 ? "\n..." : ""}</div>
+    <div class="meta">
+      <span class="message-type file_change">FILE CHANGE</span>
+      <span>${formatTime(msg.sent_at)}</span>
+    </div>
+  `;
+  // Click file path to open in viewer
+  div.querySelector(".file-path").addEventListener("click", () => openFileViewer(filePath));
+  directorMessages.appendChild(div);
+  directorMessages.scrollTop = directorMessages.scrollHeight;
+}
+
+function handleFileRead(msg) {
+  // msg.content format: "path: <filepath>\n---\n<file content>"
+  const lines = (msg.content || "").split("\n");
+  const pathLine = lines[0] || "";
+  const filePath = pathLine.replace(/^path:\s*/, "").trim();
+  const fileContent = lines.slice(2).join("\n");
+
+  workspace.files[filePath] = fileContent;
+
+  renderSystemMsg(directorMessages, `Worker shared: ${filePath}`);
+
+  // Auto-open in viewer
+  openFileViewer(filePath);
+}
+
+function handleStatusUpdate(msg) {
+  const status = (msg.content || "").trim().toLowerCase();
+  workerPill.style.display = "flex";
+
+  workerDot.className = "worker-status-dot";
+  if (status.includes("writing") || status.includes("editing")) {
+    workerDot.classList.add("writing");
+    workerActivity.textContent = "writing";
+  } else if (status.includes("testing") || status.includes("running")) {
+    workerDot.classList.add("testing");
+    workerActivity.textContent = "testing";
+  } else if (status.includes("reading") || status.includes("exploring")) {
+    workerDot.classList.add("active");
+    workerActivity.textContent = "reading";
+  } else if (status.includes("idle") || status.includes("done")) {
+    workerActivity.textContent = "idle";
+  } else {
+    workerDot.classList.add("active");
+    workerActivity.textContent = status.slice(0, 20);
+  }
+}
+
+function renderFileTree() {
+  fileTree.innerHTML = "";
+  if (workspace.tree.length === 0) {
+    fileTree.innerHTML = '<div class="file-tree-empty">No workspace data yet.<br>Worker will share file structure when connected.</div>';
+    return;
+  }
+
+  for (const item of workspace.tree) {
+    const div = document.createElement("div");
+    const isFolder = item.type === "folder";
+    div.className = `ft-item ${isFolder ? "ft-folder" : "ft-file"}${item.changed ? " changed" : ""}${item.path === workspace.activeFile ? " active" : ""}`;
+
+    let indentHtml = "";
+    for (let i = 0; i < item.indent; i++) {
+      indentHtml += '<span class="ft-indent"></span>';
+    }
+
+    div.innerHTML = `
+      ${indentHtml}
+      <span class="ft-icon">${isFolder ? "\u25bc" : "\u25cb"}</span>
+      <span class="ft-name">${escapeHtml(item.path)}</span>
+      ${item.changed ? '<span class="ft-badge">M</span>' : ""}
+    `;
+
+    if (!isFolder) {
+      div.addEventListener("click", () => {
+        if (workspace.files[item.path]) {
+          openFileViewer(item.path);
+        }
+      });
+    }
+
+    fileTree.appendChild(div);
+  }
+}
+
+function openFileViewer(path) {
+  workspace.activeFile = path;
+  fileViewerPath.textContent = path;
+
+  const content = workspace.files[path] || "File not yet shared by worker.";
+
+  // Render with diff highlighting
+  const lines = content.split("\n");
+  let html = "";
+  for (const line of lines) {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      html += `<span class="line-added">${escapeHtml(line)}\n</span>`;
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      html += `<span class="line-removed">${escapeHtml(line)}\n</span>`;
+    } else {
+      html += escapeHtml(line) + "\n";
+    }
+  }
+  fileViewerContent.innerHTML = html;
+
+  fileViewer.style.display = "flex";
+  renderFileTree(); // refresh active state
+}
+
+function closeFileViewer() {
+  workspace.activeFile = null;
+  fileViewer.style.display = "none";
+  renderFileTree();
+}
+
+// Sidebar toggle
+$("#btn-toggle-sidebar").addEventListener("click", () => {
+  sidebar.classList.toggle("collapsed");
+});
+
+// Close file viewer
+$("#btn-close-viewer").addEventListener("click", closeFileViewer);
+
+// ========== WORKSPACE SIMULATION ==========
+
+SIMULATIONS.workspace = [
+  { from: "B", type: "status_update", content: "reading project structure", delay: 800 },
+  { from: "B", type: "file_tree", content:
+`src/
+  components/
+    Header.tsx
+    Sidebar.tsx
+    Dashboard.tsx
+  api/
+    auth.ts
+    payments.ts
+    users.ts
+  utils/
+    helpers.ts
+    constants.ts
+  App.tsx
+  index.ts
+package.json
+tsconfig.json`, delay: 1500 },
+  { from: "A", type: "context", content: "I need you to review the auth module and fix the token refresh race condition we discussed.", delay: 2000 },
+  { from: "B", type: "status_update", content: "reading src/api/auth.ts", delay: 1000 },
+  { from: "B", type: "file_read", content:
+`path: src/api/auth.ts
+---
+import { jwtDecode } from 'jwt-decode';
+
+let accessToken: string | null = null;
+
+export async function refreshToken(): Promise<string> {
+  // BUG: No mutex — concurrent calls both refresh
+  const res = await fetch('/api/auth/refresh', {
+    method: 'POST',
+    credentials: 'include',
+  });
+  const data = await res.json();
+  accessToken = data.access_token;
+  return accessToken;
+}
+
+export async function authFetch(url: string, opts?: RequestInit) {
+  if (!accessToken || isExpired(accessToken)) {
+    accessToken = await refreshToken();
+  }
+  return fetch(url, {
+    ...opts,
+    headers: { ...opts?.headers, Authorization: \`Bearer \${accessToken}\` },
+  });
+}
+
+function isExpired(token: string): boolean {
+  const { exp } = jwtDecode(token);
+  return Date.now() >= exp * 1000;
+}`, delay: 3000 },
+  { from: "B", type: "insight", content: "Found the race condition on line 7. Two concurrent authFetch() calls both see an expired token and both call refreshToken(). The second refresh invalidates the first's token. Need a mutex.", delay: 2500 },
+  { from: "B", type: "status_update", content: "writing fix for auth.ts", delay: 800 },
+  { from: "B", type: "file_change", content:
+`path: src/api/auth.ts
+---
+ import { jwtDecode } from 'jwt-decode';
+
+ let accessToken: string | null = null;
++let refreshPromise: Promise<string> | null = null;
+
+ export async function refreshToken(): Promise<string> {
+-  // BUG: No mutex — concurrent calls both refresh
+-  const res = await fetch('/api/auth/refresh', {
+-    method: 'POST',
+-    credentials: 'include',
+-  });
+-  const data = await res.json();
+-  accessToken = data.access_token;
+-  return accessToken;
++  // Mutex: if a refresh is already in-flight, wait for it
++  if (refreshPromise) return refreshPromise;
++
++  refreshPromise = (async () => {
++    try {
++      const res = await fetch('/api/auth/refresh', {
++        method: 'POST',
++        credentials: 'include',
++      });
++      const data = await res.json();
++      accessToken = data.access_token;
++      return accessToken;
++    } finally {
++      refreshPromise = null;
++    }
++  })();
++
++  return refreshPromise;
+ }`, delay: 3500 },
+  { from: "A", type: "answer", content: "Perfect — the mutex pattern looks clean. The finally block ensures the lock is always released. Ship it.", delay: 2000 },
+  { from: "B", type: "status_update", content: "running tests", delay: 1000 },
+  { from: "B", type: "answer", content: "All 47 tests passing. The concurrent refresh test now correctly deduplicates — 2 simultaneous authFetch() calls result in exactly 1 refresh call instead of 2.", delay: 2500 },
+  { from: "B", type: "status_update", content: "idle", delay: 500 },
+];
+
+// ========== EVENT LISTENERS (additions) ==========
 
 // ========== INIT ==========
 

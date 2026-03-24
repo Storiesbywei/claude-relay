@@ -27,6 +27,10 @@
       </div>
 
       <div class="topbar-right">
+        <div class="worker-status-pill" id="worker-pill" style="display:none">
+          <span class="worker-status-dot" id="worker-dot"></span>
+          <span id="worker-activity">idle</span>
+        </div>
         <span class="status-dot" id="status-dot"></span>
         <span id="status-text">disconnected</span>
       </div>
@@ -53,6 +57,7 @@
           <option value="security">Security Audit Handoff</option>
           <option value="codereview">Code Review Handoff</option>
           <option value="bughunt">Bug Hunt Collab</option>
+          <option value="workspace">Workspace Demo (with files)</option>
         </select>
         <button id="btn-simulate" class="btn btn-accent">&#x25b6; Simulate</button>
         <button id="btn-clear" class="btn btn-ghost btn-sm">Clear</button>
@@ -61,27 +66,51 @@
 
     <!-- ============ DIRECTOR MODE ============ -->
     <main class="director-view" id="director-view">
-      <div class="director-panel">
-        <div class="director-header">
-          <div class="avatar avatar-worker">W</div>
-          <div class="panel-info">
-            <h2 id="worker-name">Waiting for worker...</h2>
-            <span class="role-tag" id="worker-status">no one connected</span>
+      <!-- File Tree Sidebar -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <span class="sidebar-title">Workspace</span>
+          <button class="btn-icon" id="btn-toggle-sidebar" title="Toggle sidebar">&#x25e8;</button>
+        </div>
+        <div class="file-tree" id="file-tree">
+          <div class="file-tree-empty">No workspace data yet.<br>Worker will share file structure when connected.</div>
+        </div>
+      </aside>
+
+      <!-- Chat + File Viewer -->
+      <div class="director-main">
+        <!-- Chat Panel -->
+        <div class="director-chat" id="director-chat">
+          <div class="director-header">
+            <div class="avatar avatar-worker">W</div>
+            <div class="panel-info">
+              <h2 id="worker-name">Waiting for worker...</h2>
+              <span class="role-tag" id="worker-status">no one connected</span>
+            </div>
+            <div class="msg-count" id="director-count">0 msgs</div>
           </div>
-          <div class="msg-count" id="director-count">0 msgs</div>
+          <div class="messages" id="director-messages"></div>
+          <div class="typing-indicator" id="director-typing">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="director-input">
+            <select id="msg-type" class="input-sm">
+              <option value="question">question</option>
+              <option value="context">instruction</option>
+              <option value="answer">feedback</option>
+            </select>
+            <textarea id="director-textarea" placeholder="Type an instruction for the worker..." rows="2"></textarea>
+            <button id="btn-send" class="btn btn-primary">Send</button>
+          </div>
         </div>
-        <div class="messages" id="director-messages"></div>
-        <div class="typing-indicator" id="director-typing">
-          <span></span><span></span><span></span>
-        </div>
-        <div class="director-input">
-          <select id="msg-type" class="input-sm">
-            <option value="question">question</option>
-            <option value="context">instruction</option>
-            <option value="answer">feedback</option>
-          </select>
-          <textarea id="director-textarea" placeholder="Type an instruction for the worker..." rows="2"></textarea>
-          <button id="btn-send" class="btn btn-primary">Send</button>
+
+        <!-- File Viewer Panel (shown when a file is selected) -->
+        <div class="file-viewer" id="file-viewer" style="display:none">
+          <div class="file-viewer-header">
+            <span class="file-viewer-path" id="file-viewer-path">No file selected</span>
+            <button class="btn-icon" id="btn-close-viewer" title="Close">&#x2715;</button>
+          </div>
+          <pre class="file-viewer-content" id="file-viewer-content"></pre>
         </div>
       </div>
     </main>

@@ -226,14 +226,257 @@ body {
   overflow: hidden;
 }
 
-.director-panel {
+.director-main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.director-chat {
   flex: 1;
   display: flex;
   flex-direction: column;
-  max-width: 900px;
-  margin: 0 auto;
-  width: 100%;
+  min-width: 0;
 }
+
+/* --- Sidebar (File Tree) --- */
+.sidebar {
+  width: 260px;
+  min-width: 260px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease, min-width 0.3s ease;
+  overflow: hidden;
+}
+.sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  border-right: none;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.btn-icon {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+.btn-icon:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.file-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  font-size: 12px;
+}
+
+.file-tree-empty {
+  padding: 20px 14px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.ft-item {
+  display: flex;
+  align-items: center;
+  padding: 3px 14px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ft-item:hover {
+  background: var(--surface-hover);
+}
+.ft-item.active {
+  background: var(--accent-director-dim);
+  color: var(--accent-director);
+}
+.ft-item.changed {
+  color: var(--green);
+}
+
+.ft-icon {
+  width: 16px;
+  text-align: center;
+  margin-right: 6px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.ft-folder .ft-icon { color: var(--accent-b); }
+.ft-file .ft-icon { color: var(--text-muted); }
+.ft-file.changed .ft-icon { color: var(--green); }
+
+.ft-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ft-indent {
+  display: inline-block;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.ft-badge {
+  margin-left: auto;
+  padding: 0 5px;
+  font-size: 9px;
+  border-radius: 3px;
+  background: var(--green-dim);
+  color: var(--green);
+  flex-shrink: 0;
+}
+
+/* --- File Viewer --- */
+.file-viewer {
+  width: 45%;
+  min-width: 300px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.file-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.file-viewer-path {
+  font-size: 12px;
+  color: var(--accent-director);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-viewer-content {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre;
+  tab-size: 2;
+}
+
+.file-viewer-content .line-added {
+  background: rgba(63, 185, 80, 0.15);
+  display: block;
+}
+.file-viewer-content .line-removed {
+  background: rgba(248, 81, 73, 0.15);
+  display: block;
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* --- Worker Status Pill --- */
+.worker-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--border);
+  font-size: 11px;
+  margin-right: 8px;
+}
+
+.worker-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.3s ease;
+}
+.worker-status-dot.active {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse 1.5s infinite;
+}
+.worker-status-dot.writing {
+  background: var(--accent-b);
+  box-shadow: 0 0 6px var(--accent-b);
+  animation: pulse 0.8s infinite;
+}
+.worker-status-dot.testing {
+  background: var(--accent-a);
+  box-shadow: 0 0 6px var(--accent-a);
+  animation: pulse 1s infinite;
+}
+
+/* --- File change message in chat --- */
+.message.file-change {
+  max-width: 95%;
+  background: rgba(63, 185, 80, 0.08);
+  border: 1px solid rgba(63, 185, 80, 0.2);
+  font-size: 12px;
+}
+.message.file-change .file-path {
+  color: var(--green);
+  font-weight: 600;
+  cursor: pointer;
+}
+.message.file-change .file-path:hover {
+  text-decoration: underline;
+}
+.message.file-change .diff-preview {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 120px;
+  overflow: hidden;
+}
+
+/* --- Scrollbar for sidebar + viewer --- */
+.file-tree::-webkit-scrollbar,
+.file-viewer-content::-webkit-scrollbar { width: 6px; }
+.file-tree::-webkit-scrollbar-track,
+.file-viewer-content::-webkit-scrollbar-track { background: transparent; }
+.file-tree::-webkit-scrollbar-thumb,
+.file-viewer-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.file-tree::-webkit-scrollbar-thumb:hover,
+.file-viewer-content::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
 .director-header {
   display: flex;
