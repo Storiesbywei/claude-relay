@@ -19,7 +19,13 @@ docker compose up -d
 open http://localhost:4190
 ```
 
-That's it. Dashboard is live. To stop: `docker compose down`
+That's it. Dashboard is live at `localhost:4190`.
+
+```bash
+docker compose down     # stop
+docker compose up -d    # start
+docker compose logs -f  # view logs
+```
 
 ## Quick Start (Host — without Docker)
 
@@ -42,21 +48,20 @@ bash scripts/setup.sh
 
 ## Quick Start (Worker — remote)
 
-The host exposes the relay with ngrok:
+On the host machine, start the relay + expose it:
 
 ```bash
-# On host machine
-ngrok http 4190
-# Copy the https://xxx.ngrok.io URL
+docker compose up -d    # start relay
+ngrok http 4190         # expose — copy the https://xxx.ngrok-free.app URL
 ```
 
-The remote worker sets up with the ngrok URL:
+On the remote worker's machine:
 
 ```bash
 git clone https://github.com/Storiesbywei/claude-relay
 cd claude-relay
 bun install
-bash scripts/setup.sh https://xxx.ngrok.io
+bash scripts/setup.sh https://xxx.ngrok-free.app
 # Restart Claude Code — relay_* tools point to the host
 ```
 
