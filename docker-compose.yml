@@ -1,0 +1,9 @@
+services:
+  relay:
+    build: .
+    ports:
+      - "4190:4190"
+    environment:
+      - RELAY_PORT=4190
+      - RELAY_ORIGIN=${RELAY_ORIGIN:-}
+    restart: unless-stopped

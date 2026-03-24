@@ -1,0 +1,12 @@
+node_modules
+dist
+.DS_Store
+.git
+*.log
+.env
+packages/mcp-server/src
+hooks
+scripts
+docs
+ROADMAP.md
+CLAUDE.md
