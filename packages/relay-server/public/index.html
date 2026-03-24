@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Relay — Live Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="logo">&#x27e1; Claude Relay</span>
+        <span class="session-badge" id="session-badge">no session</span>
+      </div>
+
+      <div class="topbar-center">
+        <!-- Mode Toggle -->
+        <div class="mode-toggle" id="mode-toggle">
+          <span class="mode-label" data-mode="director">Director</span>
+          <div class="toggle-track">
+            <div class="toggle-thumb"></div>
+          </div>
+          <span class="mode-label" data-mode="peer">Peer</span>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">disconnected</span>
+      </div>
+    </header>
+
+    <!-- Session Bar -->
+    <div class="session-bar" id="session-bar">
+      <button id="btn-new-session" class="btn btn-primary">+ New Session</button>
+      <div class="session-controls" id="session-controls" style="display:none">
+        <span class="invite-label">Invite token:</span>
+        <code class="invite-token" id="invite-token"></code>
+        <button class="btn btn-ghost btn-sm" id="btn-copy-invite">Copy</button>
+        <span class="divider">|</span>
+        <button class="btn btn-ghost btn-sm" id="btn-end-session">End</button>
+      </div>
+      <div class="join-controls" id="join-controls" style="display:none">
+        <input type="text" id="join-session-id" placeholder="Session ID" class="input-sm">
+        <input type="text" id="join-invite-token" placeholder="Invite token" class="input-sm">
+        <button class="btn btn-ghost btn-sm" id="btn-join">Join</button>
+      </div>
+      <!-- Peer mode buttons -->
+      <div class="peer-controls" id="peer-controls" style="display:none">
+        <select id="sim-picker" class="input-sm">
+          <option value="security">Security Audit Handoff</option>
+          <option value="codereview">Code Review Handoff</option>
+          <option value="bughunt">Bug Hunt Collab</option>
+        </select>
+        <button id="btn-simulate" class="btn btn-accent">&#x25b6; Simulate</button>
+        <button id="btn-clear" class="btn btn-ghost btn-sm">Clear</button>
+      </div>
+    </div>
+
+    <!-- ============ DIRECTOR MODE ============ -->
+    <main class="director-view" id="director-view">
+      <div class="director-panel">
+        <div class="director-header">
+          <div class="avatar avatar-worker">W</div>
+          <div class="panel-info">
+            <h2 id="worker-name">Waiting for worker...</h2>
+            <span class="role-tag" id="worker-status">no one connected</span>
+          </div>
+          <div class="msg-count" id="director-count">0 msgs</div>
+        </div>
+        <div class="messages" id="director-messages"></div>
+        <div class="typing-indicator" id="director-typing">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="director-input">
+          <select id="msg-type" class="input-sm">
+            <option value="question">question</option>
+            <option value="context">instruction</option>
+            <option value="answer">feedback</option>
+          </select>
+          <textarea id="director-textarea" placeholder="Type an instruction for the worker..." rows="2"></textarea>
+          <button id="btn-send" class="btn btn-primary">Send</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ============ PEER MODE ============ -->
+    <main class="peer-view" id="peer-view" style="display:none">
+      <!-- Claude A -->
+      <section class="panel panel-a">
+        <div class="panel-header">
+          <div class="avatar avatar-a">A</div>
+          <div class="panel-info">
+            <h2>Claude Alpha</h2>
+            <span class="role-tag">researcher</span>
+          </div>
+          <div class="msg-count" id="count-a">0 msgs</div>
+        </div>
+        <div class="messages" id="messages-a"></div>
+        <div class="typing-indicator" id="typing-a">
+          <span></span><span></span><span></span>
+        </div>
+      </section>
+
+      <!-- Center Relay Spine -->
+      <div class="spine">
+        <div class="spine-line"></div>
+        <div class="spine-label">relay</div>
+        <div class="spine-line"></div>
+      </div>
+
+      <!-- Claude B -->
+      <section class="panel panel-b">
+        <div class="panel-header">
+          <div class="avatar avatar-b">B</div>
+          <div class="panel-info">
+            <h2>Claude Beta</h2>
+            <span class="role-tag">implementer</span>
+          </div>
+          <div class="msg-count" id="count-b">0 msgs</div>
+        </div>
+        <div class="messages" id="messages-b"></div>
+        <div class="typing-indicator" id="typing-b">
+          <span></span><span></span><span></span>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Status -->
+    <footer class="bottombar">
+      <span id="relay-info">relay server: localhost:4190</span>
+      <span id="msg-total">0 messages relayed</span>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
