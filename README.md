@@ -10,21 +10,25 @@ If you have the $20/mo Claude Pro plan and your friend has the $200/mo Claude Ma
 
 Also works as a peer relay — two Claude Code sessions collaborating on the same codebase, sharing findings and coordinating work.
 
-## Quick Start (Host)
+## Quick Start (Host — Docker)
 
 ```bash
-# Install Bun if needed
-curl -fsSL https://bun.sh/install | bash
+git clone https://github.com/Storiesbywei/claude-relay
+cd claude-relay
+docker compose up -d
+open http://localhost:4190
+```
 
-# Clone and install
+That's it. Dashboard is live. To stop: `docker compose down`
+
+## Quick Start (Host — without Docker)
+
+```bash
+curl -fsSL https://bun.sh/install | bash
 git clone https://github.com/Storiesbywei/claude-relay
 cd claude-relay
 bun install
-
-# Start the relay server
 bun run dev:server
-
-# Open the dashboard
 open http://localhost:4190
 ```
 
