@@ -33,11 +33,15 @@ echo "Created ~/.claude-relay/"
 # 4. Register MCP server
 echo ""
 echo "Registering MCP server..."
-/usr/bin/python3 << PYEOF
-import json
+MCP_CONFIG_VAL="$MCP_CONFIG" \
+MCP_ENTRY_POINT="$PROJECT_DIR/packages/mcp-server/src/index.ts" \
+RELAY_URL_VAL="$RELAY_URL" \
+/usr/bin/python3 << 'PYEOF'
+import json, os
 
-mcp_path = "$MCP_CONFIG"
-mcp_entry_point = "$PROJECT_DIR/packages/mcp-server/src/index.ts"
+mcp_path = os.environ["MCP_CONFIG_VAL"]
+mcp_entry_point = os.environ["MCP_ENTRY_POINT"]
+relay_url = os.environ["RELAY_URL_VAL"]
 
 try:
     with open(mcp_path) as f:
@@ -54,7 +58,7 @@ else:
         "command": "bun",
         "args": ["run", mcp_entry_point],
         "env": {
-            "RELAY_URL": "$RELAY_URL"
+            "RELAY_URL": relay_url
         }
     }
     with open(mcp_path, "w") as f:

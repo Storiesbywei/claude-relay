@@ -11,8 +11,26 @@ import { RELAY_PORT, LIMITS } from "@claude-relay/shared";
 
 const app = new Hono();
 
-// Global middleware
-app.use("*", cors());
+// CORS — allow same-origin + configured origins (ngrok, etc.)
+const allowedOrigins = [
+  `http://localhost:${RELAY_PORT}`,
+  `http://127.0.0.1:${RELAY_PORT}`,
+  `http://0.0.0.0:${RELAY_PORT}`,
+];
+if (process.env.RELAY_ORIGIN) {
+  allowedOrigins.push(process.env.RELAY_ORIGIN);
+}
+app.use("*", cors({
+  origin: (origin) => {
+    // Allow requests with no origin (MCP tools, curl, same-origin)
+    if (!origin) return `http://localhost:${RELAY_PORT}`;
+    // Allow ngrok and configured origins
+    if (allowedOrigins.includes(origin) || origin.endsWith(".ngrok-free.app") || origin.endsWith(".ngrok.io")) {
+      return origin;
+    }
+    return `http://localhost:${RELAY_PORT}`;
+  },
+}));
 
 // Public routes
 app.route("/health", healthRoutes);
