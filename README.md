@@ -70,7 +70,7 @@ bash scripts/setup.sh https://xxx.ngrok-free.app
 Open the relay URL in a browser. Two modes:
 
 - **Director mode** — Type instructions, see results. File tree sidebar shows the worker's project structure. Click files to see code + diffs.
-- **Peer mode** — Watch two Claude sessions collaborate. Includes 4 simulation demos.
+- **Peer mode** — Watch two Claude sessions collaborate. Includes 4 simulation demos (Security Audit, Code Review, Bug Hunt, Workspace).
 
 Toggle between modes with the slider at the top.
 
@@ -107,7 +107,7 @@ Bun monorepo with 3 packages:
 - **@claude-relay/server** — Hono HTTP server + dashboard UI
 - **@claude-relay/mcp** — MCP tools for Claude Code integration
 
-~2,600 lines across 29 files. 77 tests passing.
+~3,800 lines of source code across 27 source files (41 total project files). No automated tests yet.
 
 ## Security
 
@@ -117,3 +117,6 @@ Bun monorepo with 3 packages:
 - Rate limiting (30 req/min per token)
 - Sessions auto-expire (default 1 hour)
 - In-memory only — nothing persists on restart
+- CORS restricted to localhost + configured RELAY_ORIGIN + ngrok domains
+- XSS protection with escapeHtml (including quote escaping) in dashboard
+- Shell injection prevention via quoted heredoc in relay-poll hook

@@ -28,9 +28,10 @@ src/
 **Key constants:**
 - Port: 4190
 - Max sessions: 50, max participants: 10, max messages/session: 200
-- Message types: architecture, api-docs, patterns, conventions, question, answer, context, insight, task
+- Message types (14): architecture, api-docs, patterns, conventions, question, answer, context, insight, task, file_tree, file_change, file_read, terminal, status_update
 - Rate limit: 30 req/min per token
 - TTL: default 60min, max 24h
+- Max message size: 100KB, max title: 200 chars, max tags: 20, max references: 50
 
 ### @claude-relay/server
 HTTP relay server built on Hono, serves both the REST API and the dashboard UI.
@@ -48,9 +49,9 @@ src/
 └── store/
     └── memory.ts         In-memory Map<id, Session>, token index, SSE pub/sub
 public/
-├── index.html            Dashboard layout (director + peer views)
-├── style.css             Dark theme, mode toggle, split panels
-└── app.js                Mode switching, session management, polling, 3 simulation scripts
+├── index.html            Dashboard layout (director + peer views, file tree sidebar, file viewer)
+├── style.css             Dark theme, mode toggle, split panels, workspace styles
+└── app.js                Mode switching, session management, polling, 4 simulation scripts
 ```
 
 **Auth model:**
@@ -108,25 +109,26 @@ src/
 
 ### Director Mode
 ```
-┌────────────────────────────────────────────┐
-│ ✦ Claude Relay  [no session]  Director ○ Peer  ● connected │
-├────────────────────────────────────────────┤
-│ [+ New Session]  [Session ID] [Token] [Join] │
-├────────────────────────────────────────────┤
-│  W  Worker Name                    0 msgs  │
-│────────────────────────────────────────────│
-│                                            │
-│  ┌─────────────────────────────┐           │
-│  │ Director: Do X              │  (sent)   │
-│  └─────────────────────────────┘           │
-│           ┌─────────────────────────────┐  │
-│  (recv)   │ Worker: Done, here's what...│  │
-│           └─────────────────────────────┘  │
-│                                            │
-├────────────────────────────────────────────┤
-│ [question ▾] [Type an instruction...] [Send] │
-└────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ ✦ Claude Relay  [session]  Director ○ Peer  [worker: idle]   │
+├──────────────────────────────────────────────────────────────┤
+│ [+ New Session]  [Invite token: xxx] [Copy] [End]            │
+├────────┬────────────────────────────────┬────────────────────┤
+│ Work-  │  W  Worker Name       0 msgs  │  File Viewer       │
+│ space  │────────────────────────────────│  (click file in    │
+│        │  ┌──────────────────┐          │   tree or chat     │
+│ src/   │  │ Dir: Do X        │  (sent)  │   to open)         │
+│  comp/ │  └──────────────────┘          │                    │
+│  api/  │       ┌──────────────────┐     │  path: src/api/..  │
+│  ...   │       │ Worker: Done...  │     │  ┌──────────────┐  │
+│        │       └──────────────────┘     │  │ diff view    │  │
+│        │────────────────────────────────│  │ + added      │  │
+│        │ [question ▾] [instruction] [Send]│  │ - removed    │  │
+├────────┴────────────────────────────────┴────────────────────┤
+│ relay server: localhost:4190 | v0.1.0        0 messages      │
+└──────────────────────────────────────────────────────────────┘
 ```
+Features: file tree sidebar (populated by file_tree messages), file viewer (code + diff highlighting), worker status pill (idle/reading/writing/testing), typing indicators.
 
 ### Peer Mode
 ```
@@ -142,6 +144,7 @@ src/
 │  └────────────┘  │   │  └────────────┘  │
 └──────────────────┴───┴──────────────────┘
 ```
+4 built-in simulation demos: Security Audit, Code Review, Bug Hunt, Workspace (with file_tree/file_change/file_read messages).
 
 ## Security Model
 
@@ -151,17 +154,41 @@ src/
 4. **Content scanning** — regex patterns detect API keys, tokens, secrets, absolute paths
 5. **Rate limiting** — 30 req/min per token, sliding window
 6. **TTL expiry** — sessions auto-delete after timeout (default 1h)
-7. **localhost only** — server binds to 127.0.0.1, not exposed to network
-8. **No persistence** — in-memory store, everything gone on restart
+7. **CORS restriction** — allows localhost, RELAY_ORIGIN env, and *.ngrok-free.app / *.ngrok.io origins only
+8. **XSS protection** — escapeHtml with &, <, >, ", ' escaping on all user content in dashboard
+9. **Shell injection prevention** — relay-poll.sh uses quoted heredoc (`<< 'PYEOF'`) to prevent variable expansion
+10. **Network-accessible** — server binds to 0.0.0.0 (use firewall or ngrok for controlled exposure)
+11. **No persistence** — in-memory store, everything gone on restart
+
+## Docker Architecture
+
+```
+Dockerfile: oven/bun:1.3-alpine
+├── Layer 1: Copy package.json + bun.lock + bunfig.toml (cached)
+├── Layer 2: bun install --frozen-lockfile
+├── Layer 3: Copy shared/ + relay-server/ + tsconfig.json
+├── Expose: 4190
+└── CMD: bun run packages/relay-server/src/index.ts
+```
+
+docker-compose.yml:
+- Single `relay` service, port 4190:4190
+- Environment: RELAY_PORT=4190, RELAY_ORIGIN (optional, for ngrok)
+- Restart policy: unless-stopped
+
+.dockerignore excludes: mcp-server/src, hooks, scripts, docs, ROADMAP.md, CLAUDE.md
 
 ## Line Count Summary
 
 | Package | Lines | Files |
 |---------|-------|-------|
-| shared | 212 | 4 |
-| relay-server (TS) | 534 | 7 |
-| relay-server (UI) | 857 | 3 |
-| mcp-server | 789 | 8 |
-| hooks/scripts | 194 | 3 |
-| config | 34 | 4 |
-| **Total** | **~2,620** | **29** |
+| shared | 218 | 4 |
+| relay-server (TS) | 552 | 7 |
+| relay-server (UI) | 1,842 | 3 |
+| mcp-server | 939 | 10 |
+| hooks/scripts | 207 | 3 |
+| config (json/toml/yml/Dockerfile/ignore) | 74 | 7 |
+| docs (md) | 452 | 4 |
+| package.json (sub-packages) | 33 | 3 |
+| **Total** | **~4,300** | **41** |
+| **Source only (ts/js/html/css/sh)** | **~3,800** | **27** |
