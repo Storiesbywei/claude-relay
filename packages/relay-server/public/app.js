@@ -465,7 +465,8 @@ async function runSimulation() {
 
     const joinRes = await api(`/sessions/${createRes.session_id}/join`, {
       method: "POST",
-      body: JSON.stringify({ invite_token: createRes.invite_token, participant_name: "Claude Beta" }),
+      headers: { Authorization: `Bearer ${createRes.invite_token}` },
+      body: JSON.stringify({ participant_name: "Claude Beta" }),
     });
 
     state.simTokenA = createRes.creator_token;
@@ -844,8 +845,9 @@ function isExpired(token: string): boolean {
 
 // ========== INIT ==========
 
-// Restore mode
-const savedMode = localStorage.getItem("relay-mode");
+// Restore mode (supports ?mode=peer URL parameter)
+const urlMode = new URLSearchParams(window.location.search).get("mode");
+const savedMode = urlMode || localStorage.getItem("relay-mode");
 setMode(savedMode || "director");
 
 // Restore session
@@ -854,3 +856,19 @@ loadSession();
 // Health check
 checkHealth();
 setInterval(checkHealth, 5000);
+
+// URL parameter: ?sim=workspace to auto-select simulation
+const urlSim = new URLSearchParams(window.location.search).get("sim");
+if (urlSim) {
+  const simPicker = document.getElementById("sim-picker");
+  if (simPicker) simPicker.value = urlSim;
+}
+
+// URL parameter: ?autorun=1 to auto-start simulation
+const autorun = new URLSearchParams(window.location.search).get("autorun");
+if (autorun === "1") {
+  setTimeout(() => {
+    const simBtn = document.getElementById("btn-simulate");
+    if (simBtn) simBtn.click();
+  }, 500);
+}
