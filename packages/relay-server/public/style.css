@@ -255,6 +255,33 @@ body {
   min-width: 0;
   border-right: none;
 }
+.sidebar.collapsed + .sidebar-expand-tab {
+  display: flex;
+}
+.sidebar-expand-tab {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 24px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+.sidebar-expand-tab:hover {
+  background: #1f2937;
+  color: #c9d1d9;
+}
 
 .sidebar-header {
   display: flex;
