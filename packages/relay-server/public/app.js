@@ -741,6 +741,9 @@ function closeFileViewer() {
 $("#btn-toggle-sidebar").addEventListener("click", () => {
   sidebar.classList.toggle("collapsed");
 });
+$("#btn-expand-sidebar").addEventListener("click", () => {
+  sidebar.classList.remove("collapsed");
+});
 
 // Close file viewer
 $("#btn-close-viewer").addEventListener("click", closeFileViewer);
