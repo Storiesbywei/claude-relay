@@ -11,7 +11,8 @@ import { relayRoutes } from "./routes/relay.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { sweepExpiredSessions } from "./store/memory.js";
-import { RELAY_PORT, LIMITS } from "@claude-relay/shared";
+import { RELAY_PORT, LIMITS, RELAY_INFO } from "@claude-relay/shared";
+import { handleOpen, handleClose, handleMessage, getNostrStats, setCanonicalRelayUrl } from "./nostr/handler.js";
 
 const app = new Hono();
 
@@ -37,6 +38,19 @@ app.use("*", cors({
     return `http://localhost:${RELAY_PORT}`;
   },
 }));
+
+// NIP-11: Relay information document
+// When Accept: application/nostr+json, return relay info instead of dashboard
+app.get("/", async (c, next) => {
+  const accept = c.req.header("Accept") || "";
+  if (accept.includes("application/nostr+json")) {
+    return c.json(RELAY_INFO, 200, {
+      "Content-Type": "application/nostr+json",
+      "Access-Control-Allow-Origin": "*",
+    });
+  }
+  await next();
+});
 
 // Public routes
 app.route("/health", healthRoutes);
@@ -89,10 +103,37 @@ process.on("SIGTERM", shutdown);
 
 const port = Number(process.env.RELAY_PORT || RELAY_PORT);
 
+// Set canonical relay URL for NIP-42 validation
+const canonicalWsUrl = `ws://localhost:${port}`;
+setCanonicalRelayUrl(canonicalWsUrl);
+
 console.log(`[relay] Claude Relay server starting on http://0.0.0.0:${port}`);
+console.log(`[relay] Nostr WebSocket relay available at ${canonicalWsUrl}`);
 
 export default {
   port,
   hostname: "0.0.0.0",
-  fetch: app.fetch,
+  fetch(req: Request, server: any): Response | Promise<Response> {
+    // Upgrade WebSocket connections for Nostr protocol
+    if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      const success = server.upgrade(req);
+      if (success) return undefined as any; // Bun handles the response
+      return new Response("WebSocket upgrade failed", { status: 400 });
+    }
+    return app.fetch(req, server);
+  },
+  websocket: {
+    maxPayloadLength: LIMITS.MAX_MESSAGE_SIZE, // 100KB max per WS message
+    open(ws: any) {
+      handleOpen(ws);
+      console.log(`[nostr] WebSocket connected (${getNostrStats().connections} total)`);
+    },
+    close(ws: any) {
+      handleClose(ws);
+      console.log(`[nostr] WebSocket disconnected (${getNostrStats().connections} total)`);
+    },
+    message(ws: any, data: string | Buffer) {
+      handleMessage(ws, data);
+    },
+  },
 };

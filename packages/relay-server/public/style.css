@@ -94,6 +94,41 @@ body {
   box-shadow: 0 0 8px var(--green);
 }
 
+/* --- Nostr Badge --- */
+.nostr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(124, 106, 239, 0.1);
+  border: 1px solid rgba(124, 106, 239, 0.2);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-right: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+.nostr-badge:hover {
+  background: rgba(124, 106, 239, 0.2);
+}
+.nostr-badge.active {
+  background: rgba(124, 106, 239, 0.15);
+  border-color: var(--accent-a);
+  color: var(--accent-a);
+}
+.nostr-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.3s ease;
+}
+.nostr-badge.active .nostr-dot {
+  background: var(--accent-a);
+  box-shadow: 0 0 6px var(--accent-a);
+}
+
 /* --- Mode Toggle --- */
 .mode-toggle {
   display: flex;

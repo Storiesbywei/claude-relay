@@ -9,6 +9,16 @@ import type {
 
 const RELAY_URL = process.env.RELAY_URL || RELAY_URL_DEFAULT;
 
+/** Get the relay host (for WebSocket URL display) */
+export function getRelayHost(): string {
+  try {
+    const url = new URL(RELAY_URL);
+    return url.host;
+  } catch {
+    return "localhost:4190";
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
