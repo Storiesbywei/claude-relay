@@ -158,6 +158,7 @@ export function sweepExpiredSessions(): number {
         tokenIndex.delete(token);
       }
       sessions.delete(id);
+      sseSubscribers.delete(id);
       swept++;
     }
   }

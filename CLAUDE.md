@@ -93,7 +93,7 @@ Workspace (5 — Phase 3): `file_tree`, `file_change`, `file_read`, `terminal`, 
 | `MAX_TAGS` | 20 |
 | `MAX_TAG_LENGTH` | 50 |
 | `MAX_REFERENCES` | 50 |
-| `RATE_LIMIT_PER_MINUTE` | 30 |
+| `RATE_LIMIT_PER_MINUTE` | 600 |
 | `DEFAULT_TTL_MINUTES` | 60 |
 | `MAX_TTL_MINUTES` | 1440 (24h) |
 | `TTL_SWEEP_INTERVAL_MS` | 60,000 (1min) |
