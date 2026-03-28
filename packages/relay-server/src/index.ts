@@ -16,6 +16,8 @@ const allowedOrigins = [
   `http://localhost:${RELAY_PORT}`,
   `http://127.0.0.1:${RELAY_PORT}`,
   `http://0.0.0.0:${RELAY_PORT}`,
+  `http://100.99.9.76:${RELAY_PORT}`,
+  `http://100.71.141.45:${RELAY_PORT}`,
 ];
 if (process.env.RELAY_ORIGIN) {
   allowedOrigins.push(process.env.RELAY_ORIGIN);
