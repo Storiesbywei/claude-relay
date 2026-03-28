@@ -57,6 +57,22 @@ const countBEl = $("#count-b");
 const typingA = $("#typing-a");
 const typingB = $("#typing-b");
 
+// --- Clipboard (works over plain HTTP) ---
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    copyText(text);
+  } else {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  }
+}
+
 // --- API ---
 async function api(path, opts = {}) {
   const res = await fetch(`${API}${path}`, {
@@ -148,7 +164,7 @@ async function createSession() {
     sessionBadge.title = data.session_id;
     sessionBadge.style.cursor = "pointer";
     sessionBadge.onclick = () => {
-      navigator.clipboard.writeText(data.session_id);
+      copyText(data.session_id);
       sessionBadge.textContent = "copied!";
       setTimeout(() => { sessionBadge.textContent = `session: ${data.session_id.slice(0, 8)}...`; }, 1500);
     };
@@ -184,7 +200,7 @@ async function joinSession() {
     sessionBadge.title = sid;
     sessionBadge.style.cursor = "pointer";
     sessionBadge.onclick = () => {
-      navigator.clipboard.writeText(sid);
+      copyText(sid);
       sessionBadge.textContent = "copied!";
       setTimeout(() => { sessionBadge.textContent = `session: ${sid.slice(0, 8)}...`; }, 1500);
     };
@@ -241,7 +257,7 @@ function loadSession() {
       sessionBadge.title = saved.sessionId;
       sessionBadge.style.cursor = "pointer";
       sessionBadge.onclick = () => {
-        navigator.clipboard.writeText(saved.sessionId);
+        copyText(saved.sessionId);
         sessionBadge.textContent = "copied!";
         setTimeout(() => { sessionBadge.textContent = `session: ${saved.sessionId.slice(0, 8)}...`; }, 1500);
       };
@@ -566,7 +582,7 @@ $("#btn-new-session").addEventListener("click", createSession);
 $("#btn-join").addEventListener("click", joinSession);
 $("#btn-end-session").addEventListener("click", endSession);
 $("#btn-copy-invite").addEventListener("click", () => {
-  navigator.clipboard.writeText(state.inviteToken || "");
+  copyText(state.inviteToken || "");
   showToast("Invite token copied!");
 });
 $("#btn-send").addEventListener("click", sendDirectorMessage);
