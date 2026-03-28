@@ -145,6 +145,13 @@ async function createSession() {
     state.myName = "Director";
 
     sessionBadge.textContent = `session: ${data.session_id.slice(0, 8)}...`;
+    sessionBadge.title = data.session_id;
+    sessionBadge.style.cursor = "pointer";
+    sessionBadge.onclick = () => {
+      navigator.clipboard.writeText(data.session_id);
+      sessionBadge.textContent = "copied!";
+      setTimeout(() => { sessionBadge.textContent = `session: ${data.session_id.slice(0, 8)}...`; }, 1500);
+    };
     sessionBadge.classList.add("active");
     inviteTokenEl.textContent = data.invite_token;
     updateSessionBar();
@@ -164,7 +171,8 @@ async function joinSession() {
   try {
     const data = await api(`/sessions/${sid}/join`, {
       method: "POST",
-      body: JSON.stringify({ invite_token: invite, participant_name: "Director" }),
+      headers: { "Authorization": `Bearer ${invite}` },
+      body: JSON.stringify({ participant_name: "Director" }),
     });
     state.sessionId = sid;
     state.myToken = data.participant_token;
@@ -223,6 +231,13 @@ function loadSession() {
       state.inviteToken = saved.inviteToken;
       state.cursor = saved.cursor || 0;
       sessionBadge.textContent = `session: ${saved.sessionId.slice(0, 8)}...`;
+      sessionBadge.title = saved.sessionId;
+      sessionBadge.style.cursor = "pointer";
+      sessionBadge.onclick = () => {
+        navigator.clipboard.writeText(saved.sessionId);
+        sessionBadge.textContent = "copied!";
+        setTimeout(() => { sessionBadge.textContent = `session: ${saved.sessionId.slice(0, 8)}...`; }, 1500);
+      };
       sessionBadge.classList.add("active");
       if (saved.inviteToken) inviteTokenEl.textContent = saved.inviteToken;
       updateSessionBar();
