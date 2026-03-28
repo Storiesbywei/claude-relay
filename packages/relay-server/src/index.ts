@@ -1,6 +1,10 @@
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serveStatic } from "hono/bun";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import { healthRoutes } from "./routes/health.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { relayRoutes } from "./routes/relay.js";
@@ -49,7 +53,7 @@ app.use("/relay/:session_id", rateLimitMiddleware);
 app.route("/relay", relayRoutes);
 
 // Dashboard (static files)
-app.use("/*", serveStatic({ root: "./packages/relay-server/public" }));
+app.use("/*", serveStatic({ root: resolve(__dirname, "../public") + "/" }));
 
 // TTL sweep
 const sweepInterval = setInterval(() => {
