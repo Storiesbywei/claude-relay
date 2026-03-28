@@ -60,17 +60,32 @@ const typingB = $("#typing-b");
 // --- Clipboard (works over plain HTTP) ---
 function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) {
-    copyText(text);
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
   } else {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
+    fallbackCopy(text);
   }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+}
+
+function setupSessionBadge(sessionId) {
+  sessionBadge.textContent = `session: ${sessionId.slice(0, 8)}...`;
+  sessionBadge.title = sessionId;
+  sessionBadge.style.cursor = "pointer";
+  sessionBadge.onclick = () => {
+    copyText(sessionId);
+    sessionBadge.textContent = "copied!";
+    setTimeout(() => { sessionBadge.textContent = `session: ${sessionId.slice(0, 8)}...`; }, 1500);
+  };
+  sessionBadge.classList.add("active");
 }
 
 // --- API ---
@@ -160,15 +175,7 @@ async function createSession() {
     state.cursor = 0;
     state.myName = "Director";
 
-    sessionBadge.textContent = `session: ${data.session_id.slice(0, 8)}...`;
-    sessionBadge.title = data.session_id;
-    sessionBadge.style.cursor = "pointer";
-    sessionBadge.onclick = () => {
-      copyText(data.session_id);
-      sessionBadge.textContent = "copied!";
-      setTimeout(() => { sessionBadge.textContent = `session: ${data.session_id.slice(0, 8)}...`; }, 1500);
-    };
-    sessionBadge.classList.add("active");
+    setupSessionBadge(data.session_id);
     inviteTokenEl.textContent = data.invite_token;
     updateSessionBar();
     renderSystemMsg(directorMessages, "Session created. Share the invite token with the worker.");
@@ -196,15 +203,7 @@ async function joinSession() {
     state.cursor = 0;
     state.myName = "Director";
 
-    sessionBadge.textContent = `session: ${sid.slice(0, 8)}...`;
-    sessionBadge.title = sid;
-    sessionBadge.style.cursor = "pointer";
-    sessionBadge.onclick = () => {
-      copyText(sid);
-      sessionBadge.textContent = "copied!";
-      setTimeout(() => { sessionBadge.textContent = `session: ${sid.slice(0, 8)}...`; }, 1500);
-    };
-    sessionBadge.classList.add("active");
+    setupSessionBadge(sid);
     updateSessionBar();
     renderSystemMsg(directorMessages, "Joined session as Director.");
     saveSession();
@@ -253,15 +252,7 @@ function loadSession() {
       state.myToken = saved.myToken;
       state.inviteToken = saved.inviteToken;
       state.cursor = saved.cursor || 0;
-      sessionBadge.textContent = `session: ${saved.sessionId.slice(0, 8)}...`;
-      sessionBadge.title = saved.sessionId;
-      sessionBadge.style.cursor = "pointer";
-      sessionBadge.onclick = () => {
-        copyText(saved.sessionId);
-        sessionBadge.textContent = "copied!";
-        setTimeout(() => { sessionBadge.textContent = `session: ${saved.sessionId.slice(0, 8)}...`; }, 1500);
-      };
-      sessionBadge.classList.add("active");
+      setupSessionBadge(saved.sessionId);
       if (saved.inviteToken) inviteTokenEl.textContent = saved.inviteToken;
       updateSessionBar();
       // Load existing messages

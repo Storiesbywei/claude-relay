@@ -151,9 +151,7 @@ export function sweepExpiredSessions(): number {
 
   for (const [id, session] of sessions) {
     if (session.expiresAt.getTime() < now) {
-      // Clean up token index
       tokenIndex.delete(session.creatorToken);
-      tokenIndex.delete(session.inviteToken);
       for (const [token] of session.participants) {
         tokenIndex.delete(token);
       }

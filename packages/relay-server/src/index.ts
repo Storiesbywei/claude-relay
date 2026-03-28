@@ -57,7 +57,6 @@ const publicDir = resolve(__dirname, "../public");
 app.use("/*", async (c, next) => {
   const path = c.req.path === "/" ? "/index.html" : c.req.path;
   const resolvedPath = resolve(publicDir, "." + path);
-  // Prevent path traversal outside public directory
   if (!resolvedPath.startsWith(publicDir)) {
     return c.text("Forbidden", 403);
   }
