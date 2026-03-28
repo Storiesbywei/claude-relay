@@ -79,7 +79,7 @@ async function checkHealth() {
     const data = await api("/health");
     statusDot.classList.add("connected");
     statusText.textContent = "connected";
-    relayInfo.textContent = `relay server: localhost:4190 | v${data.version} | ${data.sessions} session(s)`;
+    relayInfo.textContent = `relay server: ${window.location.host} | v${data.version} | ${data.sessions} session(s)`;
     return true;
   } catch {
     statusDot.classList.remove("connected");
