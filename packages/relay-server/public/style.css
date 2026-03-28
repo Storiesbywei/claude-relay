@@ -740,6 +740,20 @@ body {
 .message-type.context { background: rgba(88, 166, 255, 0.2); color: var(--accent-director); }
 .message-type.architecture { background: rgba(124, 106, 239, 0.2); color: var(--accent-a); }
 .message-type.patterns { background: rgba(240, 136, 62, 0.2); color: var(--accent-b); }
+.message-type.status_update { background: rgba(88, 166, 255, 0.15); color: var(--accent-director); }
+.message-type.file_tree, .message-type.file_change, .message-type.file_read, .message-type.terminal { background: rgba(255, 255, 255, 0.08); color: var(--text-muted); }
+
+.sender-tag {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 4px;
+}
+.sender-tag.agent { background: rgba(124, 106, 239, 0.25); color: var(--accent-a); }
+.sender-tag.human { background: rgba(46, 160, 67, 0.25); color: var(--green); }
 
 /* --- Typing Indicator --- */
 .typing-indicator {

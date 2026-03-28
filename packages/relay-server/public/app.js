@@ -370,14 +370,14 @@ function renderDirectorMessage(msg) {
   }
   if (msg.type === "status_update") {
     handleStatusUpdate(msg);
-    return;
   }
 
   const isMine = msg.sender_name === "Director" || msg.sender_name === "creator";
+  const senderTag = inferSenderTag(msg.sender_name);
   const div = document.createElement("div");
   div.className = `message ${isMine ? "sent" : "received"}`;
   div.innerHTML = `
-    <div class="sender">${escapeHtml(msg.sender_name)}</div>
+    <div class="sender">${escapeHtml(msg.sender_name)} <span class="sender-tag ${senderTag}">${senderTag}</span></div>
     <div class="content">${escapeHtml(msg.content)}</div>
     <div class="meta">
       <span class="message-type ${msg.type || "context"}">${msg.type || "message"}</span>
@@ -419,6 +419,13 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#x27;");
+}
+
+function inferSenderTag(name) {
+  if (!name) return "human";
+  const lower = name.toLowerCase();
+  if (lower.startsWith("claude") || lower.includes("agent") || lower.includes("bot") || lower.includes("worker")) return "agent";
+  return "human";
 }
 
 function formatTime(ts) {

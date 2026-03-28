@@ -7,12 +7,12 @@ import { getActiveSession } from "../state.js";
 export function registerSendTool(server: McpServer) {
   server.tool(
     "relay_send",
-    "Stage a knowledge payload for user approval before sending to the relay. The payload is NOT sent immediately — it enters an approval queue. The user must approve via relay_approve to actually transmit it.",
+    "Stage a knowledge payload for user approval before sending to the relay. The payload is NOT sent immediately — it enters an approval queue. The user must approve via relay_approve to actually transmit it. Chat-visible types: architecture, api-docs, patterns, conventions, question, answer, context, insight, task. Metadata types (update UI indicators only): status_update, file_tree, file_change, file_read, terminal.",
     {
       session_id: z.string().uuid().describe("Session to send to"),
       message_type: z
         .enum(MESSAGE_TYPES)
-        .describe("Type of knowledge being shared"),
+        .describe("Chat-visible: architecture, api-docs, patterns, conventions, question, answer, context, insight, task. Metadata-only: status_update, file_tree, file_change, file_read, terminal."),
       title: z
         .string()
         .max(200)
