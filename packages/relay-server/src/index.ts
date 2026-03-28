@@ -53,7 +53,17 @@ app.use("/relay/:session_id", rateLimitMiddleware);
 app.route("/relay", relayRoutes);
 
 // Dashboard (static files)
-app.use("/*", serveStatic({ root: resolve(__dirname, "../public") + "/" }));
+const publicDir = resolve(__dirname, "../public");
+app.use("/*", async (c, next) => {
+  const path = c.req.path === "/" ? "/index.html" : c.req.path;
+  const file = Bun.file(resolve(publicDir, "." + path));
+  if (await file.exists()) {
+    return new Response(file, {
+      headers: { "Content-Type": file.type },
+    });
+  }
+  await next();
+});
 
 // TTL sweep
 const sweepInterval = setInterval(() => {
