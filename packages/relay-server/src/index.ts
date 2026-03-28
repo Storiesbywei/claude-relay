@@ -56,7 +56,12 @@ app.route("/relay", relayRoutes);
 const publicDir = resolve(__dirname, "../public");
 app.use("/*", async (c, next) => {
   const path = c.req.path === "/" ? "/index.html" : c.req.path;
-  const file = Bun.file(resolve(publicDir, "." + path));
+  const resolvedPath = resolve(publicDir, "." + path);
+  // Prevent path traversal outside public directory
+  if (!resolvedPath.startsWith(publicDir)) {
+    return c.text("Forbidden", 403);
+  }
+  const file = Bun.file(resolvedPath);
   if (await file.exists()) {
     return new Response(file, {
       headers: { "Content-Type": file.type },
@@ -74,11 +79,13 @@ const sweepInterval = setInterval(() => {
 }, LIMITS.TTL_SWEEP_INTERVAL_MS);
 
 // Graceful shutdown
-process.on("SIGINT", () => {
+const shutdown = () => {
   clearInterval(sweepInterval);
   console.log("\n[relay] Shutting down...");
   process.exit(0);
-});
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
 
 const port = Number(process.env.RELAY_PORT || RELAY_PORT);
 

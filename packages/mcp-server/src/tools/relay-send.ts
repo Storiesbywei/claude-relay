@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { MESSAGE_TYPES } from "@claude-relay/shared";
 import { stageMessage, generatePreview } from "../approval/queue.js";
 import { getActiveSession } from "../state.js";
 
@@ -10,14 +11,7 @@ export function registerSendTool(server: McpServer) {
     {
       session_id: z.string().uuid().describe("Session to send to"),
       message_type: z
-        .enum([
-          "architecture",
-          "api-docs",
-          "patterns",
-          "conventions",
-          "question",
-          "answer",
-        ])
+        .enum(MESSAGE_TYPES)
         .describe("Type of knowledge being shared"),
       title: z
         .string()
