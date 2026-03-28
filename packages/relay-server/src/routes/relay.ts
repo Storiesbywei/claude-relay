@@ -26,7 +26,11 @@ relayRoutes.post("/:session_id", async (c) => {
   }
 
   const senderToken = c.get("token") as string;
-  const senderName = getSenderName(session, senderToken);
+  const defaultName = getSenderName(session, senderToken);
+  // Allow sender_name override from body (for creator sending on behalf of subagents)
+  const senderName = (body.sender_name && typeof body.sender_name === "string")
+    ? body.sender_name.slice(0, 100)
+    : defaultName;
 
   const message: StoredMessage = {
     message_id: crypto.randomUUID(),

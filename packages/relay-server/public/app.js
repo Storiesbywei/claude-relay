@@ -424,7 +424,8 @@ function escapeHtml(str) {
 function inferSenderTag(name) {
   if (!name) return "human";
   const lower = name.toLowerCase();
-  if (lower.startsWith("claude") || lower.includes("agent") || lower.includes("bot") || lower.includes("worker")) return "agent";
+  const agentKeywords = ["claude", "agent", "bot", "worker", "auditor", "analyst", "scout", "strategist", "architect", "reviewer", "mba-", "mcp-", "opus", "sonnet", "haiku"];
+  if (agentKeywords.some(k => lower.includes(k))) return "agent";
   return "human";
 }
 
