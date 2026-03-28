@@ -57,20 +57,48 @@ bash scripts/setup.sh https://xxx.ngrok-free.app
 # Restart Claude Code — relay_* tools point to the host
 ```
 
-### Cross-machine via Tailscale
+### Cross-machine via Tailscale (free, recommended)
 
-No ngrok needed — the relay binds to `0.0.0.0` and is accessible over Tailscale directly:
+[Tailscale](https://tailscale.com) creates a private mesh VPN between your machines — no port forwarding, no ngrok, no cloud hosting. Free for personal use (up to 100 devices).
+
+**1. Install Tailscale on both machines:**
 
 ```bash
-# On Mac mini (host)
-RELAY_PORT=4197 bun run dev:server
+# macOS
+brew install tailscale
+# or download from https://tailscale.com/download
 
-# From MacBook Air (worker) — test connectivity
+# Start and authenticate
+sudo tailscale up
+tailscale ip  # note your Tailscale IP (e.g., 100.x.x.x)
+```
+
+**2. Start the relay on your always-on machine (e.g., Mac mini at home):**
+
+```bash
+git clone https://github.com/Storiesbywei/claude-relay
+cd claude-relay
+bun install
+RELAY_PORT=4197 bun run dev:server
+```
+
+**3. From any other machine on your tailnet:**
+
+```bash
+# Verify connectivity
 curl http://<tailscale-ip>:4197/health
 
-# Open dashboard from anywhere on the tailnet
+# Open the dashboard from anywhere — cafe, office, phone
 open http://<tailscale-ip>:4197
+
+# Set up Claude Code worker pointing to the remote relay
+git clone https://github.com/Storiesbywei/claude-relay
+cd claude-relay
+bun install
+RELAY_URL=http://<tailscale-ip>:4197 bash scripts/setup.sh
 ```
+
+The relay binds to `0.0.0.0` so it's accessible over Tailscale with zero extra config. Your Tailscale IP is stable — bookmark the dashboard URL and it just works.
 
 ## Dashboard
 
@@ -120,18 +148,18 @@ All 15 types are available through the MCP `relay_send` tool.
 Bun monorepo with 3 packages:
 
 ```
-├── packages/shared/        Zod schemas, types, constants
-├── packages/relay-server/  Hono HTTP server + dashboard UI (HTML/CSS/JS)
+├── packages/shared/        Zod schemas, types, constants, Nostr protocol types
+├── packages/relay-server/  Hono HTTP server + Nostr WebSocket relay + dashboard UI
 ├── packages/mcp-server/    7 MCP tools for Claude Code integration
 ├── hooks/                  Auto-poll hook for Claude Code Stop events
 ├── scripts/                One-command setup (MCP registration + hooks)
 ├── tests/scenarios/        7 test scenario docs with curl scripts
-└── docs/                   Technical architecture documentation
+└── docs/                   Technical architecture + business research
 ```
 
-**Data flow**: Claude Code → MCP tools → approval queue → relay-client → relay-server → in-memory store ↔ browser dashboard (polling)
+**Data flow**: Claude Code → MCP tools → approval queue → relay-client → relay-server → in-memory store ↔ browser dashboard (polling) + Nostr WebSocket subscribers
 
-**Stats**: ~3,800 lines of source across 30 source files. 16 commits. No automated tests yet.
+**Stats**: ~5,100 lines of source across 33 source files. 23 commits. No automated tests yet.
 
 ## Server Endpoints
 
@@ -155,10 +183,18 @@ GET  /                      → dashboard UI
 - **Rate limiting** — 600 req/min per token (sliding window)
 - **CORS** — restricted to localhost + configured `RELAY_ORIGIN` env + ngrok domains + Tailscale IPs
 - **XSS protection** — `escapeHtml` with quote escaping on all user-facing content
+- **Nostr auth** — NIP-42 challenge-response with secp256k1 keypairs
 - **Shell injection prevention** — quoted heredoc in relay-poll hook
 - **Graceful shutdown** — handles both SIGINT and SIGTERM
 - **Sessions auto-expire** — default 1 hour, max 24 hours
 - **In-memory only** — nothing persists on restart (by design for Phase 1-3)
+
+### Known Limitations (local use is fine)
+
+- **No TLS** — traffic is plaintext. Fine on localhost and Tailscale (encrypted tunnel), but don't expose to the public internet without a reverse proxy (nginx/caddy with HTTPS)
+- **Invite tokens are reusable** — anyone with the token can join until MAX_PARTICIPANTS (10). No single-use or revocation yet
+- **Sender name is overridable** — any participant can set `sender_name` in POST body (designed for subagent delegation, but means names aren't verified)
+- **No automated tests** — manual curl scripts in `tests/scenarios/` but no `bun test` suite yet
 
 ## Limits
 
@@ -183,9 +219,10 @@ GET  /                      → dashboard UI
 ## Tech Stack
 
 - **Runtime**: Bun 1.3+
-- **Server**: Hono (HTTP framework)
+- **Server**: Hono (HTTP + WebSocket)
 - **Validation**: Zod
 - **MCP**: @modelcontextprotocol/sdk
+- **Nostr**: nostr-tools (NIP-01, NIP-11, NIP-42, NIP-70)
 - **Dashboard**: Vanilla HTML/CSS/JS (no framework)
 - **Container**: Docker (oven/bun:1.3-alpine)
 - **State**: In-memory (Phase 1-3)
@@ -194,6 +231,6 @@ GET  /                      → dashboard UI
 
 See [ROADMAP.md](ROADMAP.md) for the full plan.
 
-**Done**: Core relay, dashboard, workspace view, Docker, security hardening, cross-machine Tailscale support
+**Done**: Core relay, dashboard, workspace view, Docker, security hardening, cross-machine Tailscale, Nostr WebSocket relay + HTTP bridge, agent/human badges
 
-**Next**: 4-party collaborative mode (2 humans + 2 Claudes in one session), auto-polling agent loop, persistent sessions (SQLite), cloud deployment
+**Next**: 4-party collaborative mode (2 humans + 2 Claudes in one session), export (Markdown/JSON), persistent sessions (SQLite), cloud deployment

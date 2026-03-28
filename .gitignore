@@ -2,3 +2,9 @@ node_modules/
 dist/
 .env
 *.log
+.DS_Store
+
+# Private research docs
+MARKET-RESEARCH.md
+docs/BUSINESS-STRATEGY.md
+docs/saas-technical-research.md
