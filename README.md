@@ -229,7 +229,7 @@ GET  /                      → dashboard UI
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) for the full plan.
+See [Q1_ROADMAP.md](Q1_ROADMAP.md) for the full plan.
 
 **Done**: Core relay, dashboard, workspace view, Docker, security hardening, cross-machine Tailscale, Nostr WebSocket relay + HTTP bridge, agent/human badges
 
