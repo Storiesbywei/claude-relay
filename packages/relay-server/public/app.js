@@ -110,7 +110,8 @@ async function checkHealth() {
     const data = await api("/health");
     statusDot.classList.add("connected");
     statusText.textContent = "connected";
-    relayInfo.textContent = `relay server: ${window.location.host} | v${data.version} | ${data.sessions} session(s)`;
+    const nostrStr = data.nostr ? ` | nostr: ${data.nostr.connections} ws, ${data.nostr.events} events` : "";
+    relayInfo.textContent = `relay server: ${window.location.host} | v${data.version} | ${data.sessions} session(s)${nostrStr}`;
     return true;
   } catch {
     statusDot.classList.remove("connected");
@@ -876,6 +877,118 @@ function isExpired(token: string): boolean {
   { from: "B", type: "status_update", content: "idle", delay: 500 },
 ];
 
+// ========== NOSTR WEBSOCKET ==========
+
+const nostrBadge = $("#nostr-badge");
+const nostrDot = $("#nostr-dot");
+const nostrStatusEl = $("#nostr-status");
+const nostrInfoEl = $("#nostr-info");
+
+const nostrState = {
+  ws: null,
+  connected: false,
+  authed: false,
+  subscriptionId: null,
+  eventCount: 0,
+};
+
+function getWsUrl() {
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}`;
+}
+
+function connectNostr() {
+  if (nostrState.ws) {
+    nostrState.ws.close();
+  }
+
+  const wsUrl = getWsUrl();
+  const ws = new WebSocket(wsUrl);
+  nostrState.ws = ws;
+
+  ws.onopen = () => {
+    nostrState.connected = true;
+    updateNostrUI();
+  };
+
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+
+    if (msg[0] === "AUTH") {
+      // NIP-42: respond with a simple auth (no signing in browser — just mark as connected)
+      // In production, we'd use nostr-tools in the browser to sign
+      nostrState.authed = false; // No key to sign with (yet)
+      nostrStatusEl.textContent = "nostr: ws";
+      updateNostrUI();
+
+      // Subscribe to all relay event kinds without auth
+      nostrState.subscriptionId = "dashboard-" + Math.random().toString(36).slice(2, 8);
+      ws.send(JSON.stringify(["REQ", nostrState.subscriptionId, {
+        kinds: [4190,4191,4192,4193,4194,4195,4196,4197,4198,4200,4201,4202,4203,4204],
+        limit: 50,
+      }]));
+    }
+
+    if (msg[0] === "EOSE") {
+      nostrState.authed = true;
+      nostrStatusEl.textContent = "nostr: live";
+      updateNostrUI();
+    }
+
+    if (msg[0] === "EVENT" && msg[1] === nostrState.subscriptionId) {
+      nostrState.eventCount++;
+      const event = msg[2];
+      // Update footer
+      if (nostrInfoEl) {
+        nostrInfoEl.textContent = `nostr: ${nostrState.eventCount} events`;
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    nostrState.connected = false;
+    nostrState.authed = false;
+    nostrState.ws = null;
+    updateNostrUI();
+    // Reconnect after 5s
+    setTimeout(connectNostr, 5000);
+  };
+
+  ws.onerror = () => {
+    // onclose will fire after this
+  };
+}
+
+function disconnectNostr() {
+  if (nostrState.ws) {
+    nostrState.ws.close();
+    nostrState.ws = null;
+  }
+  nostrState.connected = false;
+  nostrState.authed = false;
+  updateNostrUI();
+}
+
+function updateNostrUI() {
+  if (nostrState.connected) {
+    nostrBadge.classList.add("active");
+    nostrStatusEl.textContent = nostrState.authed ? "nostr: live" : "nostr: ws";
+  } else {
+    nostrBadge.classList.remove("active");
+    nostrStatusEl.textContent = "nostr: off";
+  }
+}
+
+// Toggle Nostr connection on badge click
+nostrBadge.addEventListener("click", () => {
+  if (nostrState.connected) {
+    disconnectNostr();
+  } else {
+    connectNostr();
+  }
+});
+
 // ========== EVENT LISTENERS (additions) ==========
 
 // ========== INIT ==========
@@ -887,6 +1000,9 @@ setMode(savedMode || "director");
 
 // Restore session
 loadSession();
+
+// Auto-connect Nostr WebSocket
+connectNostr();
 
 // Health check
 checkHealth();

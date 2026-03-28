@@ -89,4 +89,10 @@ export interface ActiveSession {
   name: string;
   role: "creator" | "participant";
   cursor: number;
+  // Nostr identity for this session
+  nostr?: {
+    pubkey: string; // hex public key
+    npub: string; // bech32 public key
+    nsec: string; // bech32 secret key (stored locally only)
+  };
 }

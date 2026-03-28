@@ -3,6 +3,7 @@ import { RelayMessagePayloadSchema } from "@claude-relay/shared";
 import type { StoredMessage } from "@claude-relay/shared";
 import { addMessage, getMessages, getSession, subscribe } from "../store/memory.js";
 import { streamSSE } from "hono/streaming";
+import { bridgeMessageToNostr } from "../nostr/bridge.js";
 
 export const relayRoutes = new Hono();
 
@@ -42,6 +43,10 @@ relayRoutes.post("/:session_id", async (c) => {
 
   try {
     addMessage(sessionId, message);
+
+    // Bridge: also publish to Nostr event store so WS subscribers get it
+    bridgeMessageToNostr(message);
+
     return c.json(
       {
         message_id: message.message_id,

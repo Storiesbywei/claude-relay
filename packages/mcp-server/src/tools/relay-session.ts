@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as client from "../client/relay-client.js";
 import type { ActiveSession } from "@claude-relay/shared";
+import { generateKeypair } from "@claude-relay/shared";
 import {
   getActiveSessions,
   addActiveSession,
@@ -27,6 +28,7 @@ export function registerSessionTools(server: McpServer) {
     async ({ name, ttl_minutes }) => {
       try {
         const result = await client.createSession(name, ttl_minutes);
+        const kp = generateKeypair();
 
         addActiveSession({
           session_id: result.session_id,
@@ -34,6 +36,11 @@ export function registerSessionTools(server: McpServer) {
           name,
           role: "creator",
           cursor: 0,
+          nostr: {
+            pubkey: kp.publicKey,
+            npub: kp.npub,
+            nsec: kp.nsec,
+          },
         });
         await saveState();
 
@@ -46,10 +53,13 @@ export function registerSessionTools(server: McpServer) {
                 ``,
                 `Session ID: ${result.session_id}`,
                 `Invite Token: ${result.invite_token}`,
+                `Nostr Identity: ${kp.npub}`,
                 `Expires: ${result.expires_at}`,
                 ``,
                 `Share the session ID + invite token with the other user.`,
                 `They should call relay_join_session with these values.`,
+                ``,
+                `Nostr WebSocket: ws://${client.getRelayHost()}`,
               ].join("\n"),
             },
           ],
@@ -88,6 +98,7 @@ export function registerSessionTools(server: McpServer) {
           invite_token,
           participant_name
         );
+        const kp = generateKeypair();
 
         addActiveSession({
           session_id,
@@ -95,6 +106,11 @@ export function registerSessionTools(server: McpServer) {
           name: result.session.name,
           role: "participant",
           cursor: 0,
+          nostr: {
+            pubkey: kp.publicKey,
+            npub: kp.npub,
+            nsec: kp.nsec,
+          },
         });
         await saveState();
 
@@ -107,9 +123,11 @@ export function registerSessionTools(server: McpServer) {
                 ``,
                 `Participants: ${result.session.participants.join(", ")}`,
                 `Messages so far: ${result.session.message_count}`,
+                `Nostr Identity: ${kp.npub}`,
                 `Expires: ${result.session.expires_at}`,
                 ``,
                 `You can now use relay_poll to check for messages, or relay_send to share knowledge.`,
+                `Nostr WebSocket: ws://${client.getRelayHost()}`,
               ].join("\n"),
             },
           ],

@@ -1,5 +1,5 @@
 import type { ActiveSession } from "@claude-relay/shared";
-import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFile, writeFile, mkdir, chmod } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -19,8 +19,11 @@ export async function loadState(): Promise<void> {
 
 export async function saveState(): Promise<void> {
   try {
-    await mkdir(STATE_DIR, { recursive: true });
-    await writeFile(STATE_FILE, JSON.stringify(activeSessions, null, 2));
+    await mkdir(STATE_DIR, { recursive: true, mode: 0o700 });
+    await writeFile(STATE_FILE, JSON.stringify(activeSessions, null, 2), { mode: 0o600 });
+    // Ensure restrictive permissions (contains nsec private keys)
+    await chmod(STATE_FILE, 0o600);
+    await chmod(STATE_DIR, 0o700);
   } catch (err: any) {
     console.error(`[relay-mcp] Failed to save state: ${err.message}`);
   }

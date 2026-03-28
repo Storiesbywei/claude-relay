@@ -19,10 +19,14 @@ export function registerStatusTool(server: McpServer) {
       // Check server health
       let serverStatus = "unknown";
       let serverSessions = 0;
+      let nostrStats = { connections: 0, subscriptions: 0, events: 0 };
       try {
         const health = await relayClient.healthCheck();
         serverStatus = health.status;
         serverSessions = health.sessions;
+        if ((health as any).nostr) {
+          nostrStats = (health as any).nostr;
+        }
       } catch {
         serverStatus = "unreachable";
       }
@@ -62,6 +66,7 @@ export function registerStatusTool(server: McpServer) {
                   `Participants: ${info.participants.join(", ")}`,
                   `Messages: ${info.message_count}`,
                   `Local cursor: ${local.cursor}`,
+                  ...(local.nostr ? [`Nostr Identity: ${local.nostr.npub}`] : []),
                   `Created: ${info.created_at}`,
                   `Expires: ${info.expires_at}`,
                   `Last activity: ${info.last_activity_at}`,
@@ -89,7 +94,7 @@ export function registerStatusTool(server: McpServer) {
           : activeSessions
               .map(
                 (s) =>
-                  `  - ${s.name} (${s.role}, cursor: ${s.cursor}) [${s.session_id.slice(0, 8)}...]`
+                  `  - ${s.name} (${s.role}, cursor: ${s.cursor}) [${s.session_id.slice(0, 8)}...]${s.nostr ? ` nostr: ${s.nostr.npub.slice(0, 20)}...` : ""}`
               )
               .join("\n");
 
@@ -99,6 +104,7 @@ export function registerStatusTool(server: McpServer) {
             type: "text" as const,
             text: [
               `Relay Server: ${serverStatus} (${serverSessions} session(s) on server)`,
+              `Nostr Relay: ${nostrStats.connections} WS connections, ${nostrStats.subscriptions} subscriptions, ${nostrStats.events} events`,
               ``,
               `Active Sessions (local):`,
               sessionList,

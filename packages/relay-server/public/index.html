@@ -31,6 +31,10 @@
           <span class="worker-status-dot" id="worker-dot"></span>
           <span id="worker-activity">idle</span>
         </div>
+        <span class="nostr-badge" id="nostr-badge" title="Nostr WebSocket status">
+          <span class="nostr-dot" id="nostr-dot"></span>
+          <span id="nostr-status">nostr: off</span>
+        </span>
         <span class="status-dot" id="status-dot"></span>
         <span id="status-text">disconnected</span>
       </div>
@@ -163,6 +167,7 @@
     <!-- Bottom Status -->
     <footer class="bottombar">
       <span id="relay-info">relay server: connecting...</span>
+      <span id="nostr-info"></span>
       <span id="msg-total">0 messages relayed</span>
     </footer>
   </div>
