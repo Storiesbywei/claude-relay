@@ -63,15 +63,16 @@ GET  /relay/:id/stream               → SSE live stream (auth required)
 GET  /                               → dashboard UI
 ```
 
-## MCP Tools (6)
+## MCP Tools (7)
 | Tool | What It Does |
 |------|-------------|
 | `relay_create_session` | Create session, get invite token |
 | `relay_join_session` | Join with session ID + invite token |
-| `relay_send` | Stage message into approval queue |
+| `relay_send` | Stage message into approval queue (all 15 message types) |
 | `relay_approve` | Approve/reject/list pending messages |
 | `relay_poll` | Fetch new messages (cursor auto-advances) |
 | `relay_status` | Overview: sessions, pending approvals, health |
+| `relay_share_workspace` | Scan and share project file tree + key files |
 
 ## Message Types (14 in constants.ts)
 Core (6 — exposed in relay_send): `architecture`, `api-docs`, `patterns`, `conventions`, `question`, `answer`
