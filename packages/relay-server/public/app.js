@@ -181,6 +181,13 @@ async function joinSession() {
     state.myName = "Director";
 
     sessionBadge.textContent = `session: ${sid.slice(0, 8)}...`;
+    sessionBadge.title = sid;
+    sessionBadge.style.cursor = "pointer";
+    sessionBadge.onclick = () => {
+      navigator.clipboard.writeText(sid);
+      sessionBadge.textContent = "copied!";
+      setTimeout(() => { sessionBadge.textContent = `session: ${sid.slice(0, 8)}...`; }, 1500);
+    };
     sessionBadge.classList.add("active");
     updateSessionBar();
     renderSystemMsg(directorMessages, "Joined session as Director.");
