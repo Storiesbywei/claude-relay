@@ -1870,7 +1870,7 @@ const PixelAgents = (() => {
 
     if (CreatureConfig) {
       const context = {
-        tension: 0.3, // TODO: get from tension engine when integrated
+        tension: tensionEngine ? tensionEngine.tension : 0.3,
         typingAgentIds: new Set([...agents.values()].filter(a => a.state === 'typing').map(a => a.id)),
         walkingAgentIds: new Set([...agents.values()].filter(a => a.state === 'walking').map(a => a.id)),
       };
