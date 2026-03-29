@@ -1,0 +1,101 @@
+/* ========== PIXEL AGENTS (OFFICE VIEW) ========== */
+
+.pixel-toggle {
+  margin-left: 12px;
+  gap: 4px;
+  display: flex;
+  align-items: center;
+}
+.pixel-toggle.active {
+  background: var(--green-dim);
+  color: var(--green);
+  border-color: var(--green);
+}
+.pixel-toggle-icon {
+  font-size: 14px;
+}
+
+.pixel-view {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.pixel-canvas-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d1117;
+  padding: 12px;
+  min-width: 0;
+}
+
+.pixel-canvas-container canvas {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 0 40px rgba(88, 166, 255, 0.05);
+}
+
+.pixel-sidebar {
+  width: 220px;
+  min-width: 220px;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+
+.pixel-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.pixel-agent-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.pixel-agent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  transition: background 0.1s ease;
+}
+.pixel-agent-item:hover {
+  background: var(--surface-hover);
+}
+
+.pixel-agent-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pixel-agent-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pixel-agent-state {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pixel-sidebar-actions {
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}

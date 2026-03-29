@@ -301,6 +301,7 @@ async function checkParticipants() {
       workerName.textContent = others[0];
       workerStatus.textContent = `connected (${names.length} participants)`;
     }
+    document.dispatchEvent(new CustomEvent('relay:participants', { detail: { names } }));
   } catch { /* ignore */ }
 }
 
@@ -394,6 +395,7 @@ function renderDirectorMessage(msg) {
   `;
   directorMessages.appendChild(div);
   directorMessages.scrollTop = directorMessages.scrollHeight;
+  document.dispatchEvent(new CustomEvent('relay:message', { detail: { msg } }));
 }
 
 function renderPeerMessage(container, msg, perspective) {
@@ -707,6 +709,7 @@ function handleStatusUpdate(msg) {
     workerDot.classList.add("active");
     workerActivity.textContent = status.slice(0, 20);
   }
+  document.dispatchEvent(new CustomEvent('relay:status', { detail: { msg } }));
 }
 
 function renderFileTree() {
@@ -885,254 +888,12 @@ function isExpired(token: string): boolean {
   { from: "B", type: "status_update", content: "idle", delay: 500 },
 ];
 
-// ========== PIXEL AGENTS INTEGRATION ==========
-
-const pixelView = $("#pixel-view");
-const pixelToggle = $("#btn-pixel-toggle");
-const pixelAgentList = $("#pixel-agent-list");
-let pixelInitialized = false;
-let pixelTestCounter = 0;
-
-// Toggle office view
-function togglePixelView() {
-  if (!pixelInitialized) {
-    PixelAgents.init($("#pixel-canvas-container"));
-    pixelInitialized = true;
-  }
-
-  const isShowing = pixelView.style.display !== "none";
-  if (isShowing) {
-    // Hide pixel view, restore previous mode
-    pixelView.style.display = "none";
-    PixelAgents.hide();
-    pixelToggle.classList.remove("active");
-    // Restore whichever view was active
-    if (state.mode === "director") directorView.style.display = "flex";
-    else peerView.style.display = "flex";
-  } else {
-    // Show pixel view, hide others
-    directorView.style.display = "none";
-    peerView.style.display = "none";
-    pixelView.style.display = "flex";
-    PixelAgents.show();
-    pixelToggle.classList.add("active");
-    refreshPixelAgentList();
-  }
-}
-
-pixelToggle.addEventListener("click", togglePixelView);
-
-// Spawn a test agent for demo purposes
-$("#btn-spawn-test").addEventListener("click", () => {
-  if (!pixelInitialized) return;
-  const testNames = ["Alice", "Bob", "Claude", "Diana", "Eve", "Frank"];
-  const name = testNames[pixelTestCounter % testNames.length];
-  const id = `test-${Date.now()}-${pixelTestCounter}`;
-  PixelAgents.spawnAgent(id, name);
-  pixelTestCounter++;
-  refreshPixelAgentList();
-
-  // Cycle through states for demo
-  const states = ["typing", "reading", "thinking", "waiting", "idle"];
-  let stateIdx = 0;
-  const interval = setInterval(() => {
-    if (!PixelAgents.agents.has(id)) { clearInterval(interval); return; }
-    PixelAgents.setAgentState(id, states[stateIdx % states.length], 4000);
-    stateIdx++;
-    refreshPixelAgentList();
-  }, 5000);
-});
-
-// Spawn a test task (knight obstacle)
-let taskCounter = 0;
-const taskNames = ["Fix login bug", "Update API", "Write tests", "Refactor DB", "Deploy v2", "Code review"];
-const activeTaskIds = [];
-
-$("#btn-spawn-task").addEventListener("click", () => {
-  if (!pixelInitialized) return;
-  const agentIds = [...PixelAgents.agents.keys()];
-  if (agentIds.length === 0) return; // need at least one agent
-
-  const taskId = `task-${Date.now()}`;
-  const label = taskNames[taskCounter % taskNames.length];
-  const assignedAgent = agentIds[taskCounter % agentIds.length];
-  taskCounter++;
-
-  PixelAgents.spawnObstacle(taskId, assignedAgent, label);
-  activeTaskIds.push(taskId);
-  refreshPixelAgentList();
-});
-
-// Resolve the most recent task
-$("#btn-resolve-task").addEventListener("click", () => {
-  if (!pixelInitialized) return;
-  const taskId = activeTaskIds.pop();
-  if (taskId) {
-    PixelAgents.resolveObstacle(taskId);
-    refreshPixelAgentList();
-  }
-});
-
-function refreshPixelAgentList() {
-  pixelAgentList.innerHTML = "";
-
-  // Agents section
-  const agents = PixelAgents.agents;
-  if (agents.size > 0) {
-    const header = document.createElement("div");
-    header.className = "pixel-agent-item";
-    header.innerHTML = '<span class="pixel-agent-name" style="color: var(--text-muted); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 1px">AGENTS</span>';
-    pixelAgentList.appendChild(header);
-
-    for (const [id, agent] of agents) {
-      const colors = PixelAgents.LABEL_COLORS;
-      const div = document.createElement("div");
-      div.className = "pixel-agent-item";
-      div.innerHTML = `
-        <span class="pixel-agent-dot" style="background: ${colors[agent.charIdx % colors.length]}"></span>
-        <span class="pixel-agent-name">${escapeHtml(agent.name)}</span>
-        <span class="pixel-agent-state">${agent.state}</span>
-      `;
-      pixelAgentList.appendChild(div);
-    }
-  }
-
-  // Obstacles section
-  const obstacles = PixelAgents.obstacles;
-  if (obstacles.size > 0) {
-    const header = document.createElement("div");
-    header.className = "pixel-agent-item";
-    header.innerHTML = '<span class="pixel-agent-name" style="color: var(--red); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 1px">TASKS</span>';
-    pixelAgentList.appendChild(header);
-
-    for (const [id, obs] of obstacles) {
-      const div = document.createElement("div");
-      div.className = "pixel-agent-item";
-      const healthPct = Math.round(obs.health * 100);
-      div.innerHTML = `
-        <span class="pixel-agent-dot" style="background: ${obs.health > 0.3 ? '#f0883e' : '#f85149'}"></span>
-        <span class="pixel-agent-name">${escapeHtml(obs.label)}</span>
-        <span class="pixel-agent-state">${obs.state === 'dying' ? 'DONE' : healthPct + '%'}</span>
-      `;
-      pixelAgentList.appendChild(div);
-    }
-  }
-
-  // Gatos section
-  const gatos = PixelAgents.gatos;
-  if (gatos.size > 0) {
-    const header = document.createElement("div");
-    header.className = "pixel-agent-item";
-    header.innerHTML = '<span class="pixel-agent-name" style="color: var(--green); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 1px">OFFICE CATS</span>';
-    pixelAgentList.appendChild(header);
-
-    for (const [id, gato] of gatos) {
-      const div = document.createElement("div");
-      div.className = "pixel-agent-item";
-      div.innerHTML = `
-        <span class="pixel-agent-dot" style="background: #3fb950"></span>
-        <span class="pixel-agent-name">Gato</span>
-        <span class="pixel-agent-state">${gato.state === 'idle' ? 'napping' : gato.fleeing ? 'fleeing!' : 'roaming'}</span>
-      `;
-      pixelAgentList.appendChild(div);
-    }
-  }
-
-  if (agents.size === 0 && obstacles.size === 0) {
-    pixelAgentList.innerHTML = '<div class="file-tree-empty">No agents yet.<br>Start a session to see agents appear.</div>';
-  }
-}
-
-// Hook into relay events: when a participant joins or status changes, update pixel agents
-const _originalCheckParticipants = checkParticipants;
-checkParticipants = async function() {
-  await _originalCheckParticipants();
-  if (!pixelInitialized) return;
-
-  // Sync relay participants → pixel agents
-  if (state.sessionId && state.myToken) {
-    try {
-      const data = await api(`/sessions/${state.sessionId}`, { headers: authHeaders() });
-      const names = data.participants || [];
-      for (const name of names) {
-        const agentId = `relay-${name}`;
-        if (!PixelAgents.agents.has(agentId)) {
-          PixelAgents.spawnAgent(agentId, name);
-          refreshPixelAgentList();
-        }
-      }
-    } catch { /* ignore */ }
-  }
-};
-
-// Hook into relay messages: 'task' type → spawn obstacle, 'answer' type → resolve
-const _originalRenderDirectorMessage = renderDirectorMessage;
-renderDirectorMessage = function(msg) {
-  _originalRenderDirectorMessage(msg);
-  if (!pixelInitialized) return;
-
-  // Auto-spawn obstacle for 'task' messages
-  if (msg.type === 'task') {
-    const taskId = `relay-task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const agentIds = [...PixelAgents.agents.keys()];
-    if (agentIds.length > 0) {
-      const label = (msg.content || 'task').slice(0, 20);
-      const assignee = agentIds[Math.floor(Math.random() * agentIds.length)];
-      PixelAgents.spawnObstacle(taskId, assignee, label);
-      activeTaskIds.push(taskId);
-      refreshPixelAgentList();
-    }
-  }
-
-  // Auto-resolve oldest obstacle on 'answer' messages (task completed)
-  if (msg.type === 'answer' && activeTaskIds.length > 0) {
-    const content = (msg.content || '').toLowerCase();
-    if (content.includes('done') || content.includes('fixed') || content.includes('complete') || content.includes('passing') || content.includes('ship')) {
-      const taskId = activeTaskIds.shift();
-      if (taskId) {
-        PixelAgents.resolveObstacle(taskId);
-        refreshPixelAgentList();
-      }
-    }
-  }
-};
-
-// Hook into status updates to drive pixel agent states
-const _originalHandleStatusUpdate = handleStatusUpdate;
-handleStatusUpdate = function(msg) {
-  _originalHandleStatusUpdate(msg);
-  if (!pixelInitialized) return;
-
-  const status = (msg.content || "").trim().toLowerCase();
-  // Find the worker's pixel agent
-  const senderName = msg.sender_name || "Worker";
-  const agentId = `relay-${senderName}`;
-
-  let pixelState = "idle";
-  if (status.includes("writing") || status.includes("editing")) pixelState = "typing";
-  else if (status.includes("testing") || status.includes("running")) pixelState = "thinking";
-  else if (status.includes("reading") || status.includes("exploring")) pixelState = "reading";
-  else if (status.includes("waiting")) pixelState = "waiting";
-  else if (status.includes("idle") || status.includes("done")) pixelState = "idle";
-  else pixelState = "typing";
-
-  if (PixelAgents.agents.has(agentId)) {
-    PixelAgents.setAgentState(agentId, pixelState, 8000);
-    refreshPixelAgentList();
-  }
-};
-
 // ========== INIT ==========
 
-// Restore mode (supports ?mode=peer or ?mode=pixel URL parameter)
+// Restore mode (supports ?mode=peer URL parameter)
 const urlMode = new URLSearchParams(window.location.search).get("mode");
 const savedMode = urlMode || localStorage.getItem("relay-mode");
-if (savedMode === "pixel" || urlMode === "pixel") {
-  setMode("director"); // base mode
-  togglePixelView();   // then overlay pixel view
-} else {
-  setMode(savedMode || "director");
-}
+setMode(savedMode || "director");
 
 // Restore session
 loadSession();
@@ -1140,13 +901,6 @@ loadSession();
 // Health check
 checkHealth();
 setInterval(checkHealth, 5000);
-
-// Periodic pixel agent list refresh (for live obstacle health + gato status)
-setInterval(() => {
-  if (pixelInitialized && pixelView.style.display !== "none") {
-    refreshPixelAgentList();
-  }
-}, 2000);
 
 // URL parameter: ?sim=workspace to auto-select simulation
 const urlSim = new URLSearchParams(window.location.search).get("sim");
@@ -1163,3 +917,54 @@ if (autorun === "1") {
     if (simBtn) simBtn.click();
   }, 500);
 }
+
+// ========== PLUGINS ==========
+(function initPlugins() {
+  const pixelBtn = document.getElementById('btn-pixel-toggle');
+  if (!pixelBtn) return;
+
+  let loaded = false;
+  pixelBtn.addEventListener('click', async function onFirstClick() {
+    if (loaded) return; // already loaded, toggle handled by pixel-integration.js
+    loaded = true;
+    pixelBtn.textContent = 'Loading...';
+    try {
+      // Load CSS
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/plugins/pixel-agents/pixel-agents.css';
+      document.head.appendChild(link);
+
+      // Load HTML fragment
+      const res = await fetch('/plugins/pixel-agents/pixel-agents.html');
+      if (!res.ok) throw new Error('Plugin not available');
+      const html = await res.text();
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      const pixelView = container.firstElementChild;
+      const app = document.querySelector('.app');
+      const footer = document.querySelector('.bottombar');
+      app.insertBefore(pixelView, footer);
+
+      // Load scripts in order
+      const scripts = [
+        'pixel-scenes.js', 'pixel-creatures.js',
+        'pixel-progression.js', 'pixel-collab.js',
+        'pixel-agents.js', 'pixel-integration.js'
+      ];
+      for (const src of scripts) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = '/plugins/pixel-agents/' + src;
+          s.onload = resolve;
+          s.onerror = reject;
+          document.body.appendChild(s);
+        });
+      }
+      pixelBtn.innerHTML = '<span class="pixel-toggle-icon">&#x25a3;</span> Office';
+    } catch (e) {
+      console.warn('Pixel agents plugin not available:', e);
+      pixelBtn.style.display = 'none';
+    }
+  });
+})();

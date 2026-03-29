@@ -365,14 +365,14 @@ const PixelAgents = (() => {
     shadowImg = new Image();
     shadowImg.onload = onLoad;
     shadowImg.onerror = onLoad; // continue even if missing
-    shadowImg.src = '/assets/sprites/characters/shadow.png';
+    shadowImg.src = '/plugins/pixel-agents/assets/sprites/characters/shadow.png';
 
     // Load character sheets
     for (const file of CHAR_SPRITES) {
       const img = new Image();
       img.onload = onLoad;
       img.onerror = onLoad;
-      img.src = `/assets/sprites/characters/${file}`;
+      img.src = `/plugins/pixel-agents/assets/sprites/characters/${file}`;
       spriteImages.set(file, img);
     }
   }
@@ -1219,7 +1219,7 @@ const PixelAgents = (() => {
       const img = new Image();
       img.onload = onLoad;
       img.onerror = onLoad;
-      img.src = `/assets/sprites/characters/${file}`;
+      img.src = `/plugins/pixel-agents/assets/sprites/characters/${file}`;
       knightImages.set(file, img);
     }
   }
@@ -1460,7 +1460,7 @@ const PixelAgents = (() => {
   function loadGatoSprites() {
     for (const file of GATO_SPRITES) {
       const img = new Image();
-      img.src = `/assets/sprites/characters/${file}`;
+      img.src = `/plugins/pixel-agents/assets/sprites/characters/${file}`;
       gatoImages.set(file, img);
     }
   }

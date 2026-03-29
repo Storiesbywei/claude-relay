@@ -10,3 +10,4 @@ scripts
 docs
 ROADMAP.md
 CLAUDE.md
+packages/relay-server/public/plugins
