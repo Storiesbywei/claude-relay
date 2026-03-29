@@ -34,6 +34,8 @@ window.PixelIntegration = (() => {
   const Creatures   = window.PixelCreatureConfig   || null;
   const Progression = window.PixelProgressionConfig || null;
   const Collab      = window.PixelCollabConfig      || null;
+  const Fireplace   = window.PixelFireplaceMode     || null;
+  const Audio       = window.PixelAudioEngine        || null;
 
   let tensionEngine    = null;
   let celebrationCascade = null;
@@ -273,8 +275,23 @@ window.PixelIntegration = (() => {
       }
     }
 
+    // — FIREPLACE section —
+    if (Fireplace && Fireplace.isActive()) {
+      appendSectionHeader('FIREPLACE MODE', '#f0883e');
+      const elapsed = Fireplace.getElapsed();
+      const min = Math.floor(elapsed / 60000);
+      const act = Fireplace.getCurrentAct();
+      const scene = act ? act.scene : '...';
+      appendItem('#f0883e', 'Seed: ' + Fireplace.getSeed(), '');
+      appendItem('#f0883e', 'Scene: ' + scene, min + 'm');
+      if (Audio && Audio.isPlaying()) {
+        const state = Audio.getState();
+        appendItem('#e6d5a8', 'Audio', state.tempo + ' BPM');
+      }
+    }
+
     // Empty state
-    if (agents.size === 0 && obstacles.size === 0) {
+    if (agents.size === 0 && obstacles.size === 0 && !(Fireplace && Fireplace.isActive())) {
       pixelAgentList.innerHTML =
         '<div class="file-tree-empty">No agents yet.<br>Start a session to see agents appear.</div>';
     }
@@ -402,6 +419,128 @@ window.PixelIntegration = (() => {
     }
   }
 
+  // ── Fireplace Mode Wiring ──
+
+  let narrativeOverlay = null;
+  let narrativeTimer   = null;
+
+  function wireFireplace() {
+    const btn = $('#btn-fireplace');
+    if (!btn || !Fireplace) {
+      if (btn) btn.style.display = 'none';
+      return;
+    }
+
+    btn.addEventListener('click', () => {
+      if (!initialized) return;
+      if (Fireplace.isActive()) {
+        Fireplace.stop();
+      } else {
+        Fireplace.start();
+        // Start audio if available
+        if (Audio && !Audio.isPlaying()) {
+          try { Audio.start(Fireplace.getSeed()); } catch (_) { /* skip */ }
+        }
+      }
+    });
+
+    // Listen for fireplace lifecycle events
+    document.addEventListener('fireplace:started', (e) => {
+      const btn = $('#btn-fireplace');
+      if (btn) {
+        btn.innerHTML = '&#x23F9; Exit';
+        btn.title = 'Exit fireplace mode (seed: ' + (e.detail && e.detail.seed) + ')';
+      }
+      refreshSidebar();
+    });
+
+    document.addEventListener('fireplace:stopped', () => {
+      const btn = $('#btn-fireplace');
+      if (btn) {
+        btn.innerHTML = '&#x1F525; Fireplace';
+        btn.title = 'Ambient fireplace mode';
+      }
+      // Stop audio
+      if (Audio && Audio.isPlaying()) {
+        try { Audio.stop(); } catch (_) { /* skip */ }
+      }
+      refreshSidebar();
+    });
+
+    // Narrative text overlay
+    document.addEventListener('fireplace:narrative', (e) => {
+      const detail = e.detail || {};
+      showNarrative(detail.text, detail.durationMs || 8000, detail.isTransition || false);
+    });
+
+    // Golden hour events get longer display
+    document.addEventListener('fireplace:goldenHour', (e) => {
+      const detail = e.detail || {};
+      showNarrative(detail.text || 'Something magical happens...', detail.durationMs || 15000, false);
+    });
+
+    // Canvas click exits fireplace mode
+    const container = $('#pixel-canvas-container');
+    if (container) {
+      container.addEventListener('click', () => {
+        if (Fireplace && Fireplace.isActive()) {
+          Fireplace.stop();
+        }
+      });
+    }
+
+    // Escape key exits fireplace mode
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && Fireplace && Fireplace.isActive()) {
+        e.preventDefault();
+        Fireplace.stop();
+      }
+    });
+  }
+
+  function showNarrative(text, durationMs, isTransition) {
+    if (!text) return;
+    const container = $('#pixel-canvas-container');
+    if (!container) return;
+
+    // Remove existing overlay
+    if (narrativeOverlay && narrativeOverlay.parentNode) {
+      narrativeOverlay.parentNode.removeChild(narrativeOverlay);
+    }
+    if (narrativeTimer) clearTimeout(narrativeTimer);
+
+    // Create overlay
+    narrativeOverlay = document.createElement('div');
+    narrativeOverlay.style.cssText =
+      'position:absolute;bottom:40px;left:50%;transform:translateX(-50%);' +
+      'background:rgba(0,0,0,0.75);color:#e6d5a8;padding:12px 24px;' +
+      'border-radius:4px;font-family:Georgia,serif;font-size:13px;' +
+      'font-style:italic;max-width:80%;text-align:center;z-index:100;' +
+      'opacity:0;transition:opacity 0.8s ease;pointer-events:none;' +
+      (isTransition ? 'font-size:15px;letter-spacing:0.5px;' : '');
+    narrativeOverlay.textContent = text;
+    container.style.position = 'relative';
+    container.appendChild(narrativeOverlay);
+
+    // Fade in
+    requestAnimationFrame(() => {
+      if (narrativeOverlay) narrativeOverlay.style.opacity = '1';
+    });
+
+    // Fade out and remove
+    narrativeTimer = setTimeout(() => {
+      if (narrativeOverlay) {
+        narrativeOverlay.style.opacity = '0';
+        setTimeout(() => {
+          if (narrativeOverlay && narrativeOverlay.parentNode) {
+            narrativeOverlay.parentNode.removeChild(narrativeOverlay);
+          }
+          narrativeOverlay = null;
+        }, 800);
+      }
+    }, durationMs);
+  }
+
   // ── Toggle Button Wiring ──
 
   function wireToggle() {
@@ -414,10 +553,19 @@ window.PixelIntegration = (() => {
 
   function checkAutoOpen() {
     const urlMode = new URLSearchParams(window.location.search).get('mode');
-    if (urlMode === 'pixel') {
+    if (urlMode === 'pixel' || urlMode === 'fireplace') {
       // Small delay to let app.js finish its own init
       requestAnimationFrame(() => {
         togglePixelView();
+        // Auto-start fireplace mode if requested
+        if (urlMode === 'fireplace' && Fireplace && !Fireplace.isActive()) {
+          setTimeout(() => {
+            Fireplace.start();
+            if (Audio && !Audio.isPlaying()) {
+              try { Audio.start(Fireplace.getSeed()); } catch (_) { /* skip */ }
+            }
+          }, 500);
+        }
       });
     }
   }
@@ -436,6 +584,7 @@ window.PixelIntegration = (() => {
     subscribe();
     wireToggle();
     wireTestButtons();
+    wireFireplace();
     startRefreshLoop();
     startSpecialSpawnLoop();
     checkAutoOpen();

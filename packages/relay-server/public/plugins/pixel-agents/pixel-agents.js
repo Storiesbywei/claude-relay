@@ -1147,8 +1147,8 @@ const PixelAgents = (() => {
     seasonCheckTimer += dt;
     if (seasonCheckTimer >= SEASON_CHECK_INTERVAL) {
       seasonCheckTimer = 0;
-      currentSeason = getCurrentSeason();
-      currentTimeOfDay = getTimeOfDay();
+      currentSeason = (window.__pixelTimeOverride && window.__pixelTimeOverride.season) || getCurrentSeason();
+      currentTimeOfDay = (window.__pixelTimeOverride && window.__pixelTimeOverride.time) || getTimeOfDay();
     }
 
     // Ambient particle spawning

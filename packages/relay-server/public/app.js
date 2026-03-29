@@ -950,7 +950,9 @@ if (autorun === "1") {
       const scripts = [
         'pixel-scenes.js', 'pixel-creatures.js',
         'pixel-progression.js', 'pixel-collab.js',
-        'pixel-agents.js', 'pixel-integration.js'
+        'pixel-agents.js',
+        'pixel-fireplace.js', 'pixel-audio.js',
+        'pixel-integration.js'
       ];
       for (const src of scripts) {
         await new Promise((resolve, reject) => {
