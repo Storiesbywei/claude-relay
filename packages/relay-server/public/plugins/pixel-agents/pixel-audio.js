@@ -622,6 +622,11 @@
     var decay = midi < 60 ? 0.994 : (midi < 72 ? 0.992 : 0.990);
     var blend = 0.5;
     var buf = computeKarplusStrong(freq, duration, decay, blend);
+    // Cap cache at 100 entries to prevent unbounded memory growth
+    var cacheKeys = Object.keys(ksBufferCache);
+    if (cacheKeys.length >= 100) {
+      delete ksBufferCache[cacheKeys[0]];
+    }
     ksBufferCache[key] = buf;
     return buf;
   }
@@ -1781,9 +1786,9 @@
     transitioning = false;
     transitionTarget = null;
 
-    // Suspend context
-    if (ctx && ctx.state === 'running') {
-      ctx.suspend();
+    // Close context (not just suspend — avoids leaking AudioContext instances)
+    if (ctx) {
+      try { ctx.close(); } catch (_) { /* already closed */ }
     }
 
     // Null out all node references so next start() rebuilds from scratch

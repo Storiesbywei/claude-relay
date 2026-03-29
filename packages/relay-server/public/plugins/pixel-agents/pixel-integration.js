@@ -25,6 +25,8 @@ window.PixelIntegration = (() => {
   let testCounter   = 0;
   let taskCounter   = 0;
   const activeTaskIds = [];
+  const testAgentIntervals = []; // track intervals to prevent leak
+  const MAX_TEST_AGENTS = 6;
   const taskNames = [
     'Fix login bug', 'Update API', 'Write tests',
     'Refactor DB', 'Deploy v2', 'Code review',
@@ -300,20 +302,33 @@ window.PixelIntegration = (() => {
   function appendSectionHeader(text, color) {
     const div = document.createElement('div');
     div.className = 'pixel-agent-item';
-    div.innerHTML =
-      '<span class="pixel-agent-name" style="color: ' + color +
-      '; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 1px">' +
-      text + '</span>';
+    const span = document.createElement('span');
+    span.className = 'pixel-agent-name';
+    span.style.color = color;
+    span.style.fontWeight = '600';
+    span.style.fontSize = '10px';
+    span.style.textTransform = 'uppercase';
+    span.style.letterSpacing = '1px';
+    span.textContent = text;
+    div.appendChild(span);
     pixelAgentList.appendChild(div);
   }
 
   function appendItem(dotColor, name, state) {
     const div = document.createElement('div');
     div.className = 'pixel-agent-item';
-    div.innerHTML =
-      '<span class="pixel-agent-dot" style="background: ' + dotColor + '"></span>' +
-      '<span class="pixel-agent-name">' + escapeHtml(name) + '</span>' +
-      '<span class="pixel-agent-state">' + escapeHtml(state) + '</span>';
+    const dot = document.createElement('span');
+    dot.className = 'pixel-agent-dot';
+    dot.style.background = dotColor;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'pixel-agent-name';
+    nameSpan.textContent = name;
+    const stateSpan = document.createElement('span');
+    stateSpan.className = 'pixel-agent-state';
+    stateSpan.textContent = state;
+    div.appendChild(dot);
+    div.appendChild(nameSpan);
+    div.appendChild(stateSpan);
     pixelAgentList.appendChild(div);
   }
 
@@ -375,6 +390,8 @@ window.PixelIntegration = (() => {
     if (btnSpawnTest) {
       btnSpawnTest.addEventListener('click', () => {
         if (!initialized) return;
+        // Cap test agents to prevent interval leak
+        if (testAgentIntervals.length >= MAX_TEST_AGENTS) return;
         const names = ['Alice', 'Bob', 'Claude', 'Diana', 'Eve', 'Frank'];
         const name  = names[testCounter % names.length];
         const id    = 'test-' + Date.now() + '-' + testCounter;
@@ -386,11 +403,17 @@ window.PixelIntegration = (() => {
         const states = ['typing', 'reading', 'thinking', 'waiting', 'idle'];
         let stateIdx = 0;
         const interval = setInterval(() => {
-          if (!PixelAgents.agents.has(id)) { clearInterval(interval); return; }
+          if (!PixelAgents.agents.has(id)) {
+            clearInterval(interval);
+            const idx = testAgentIntervals.indexOf(interval);
+            if (idx !== -1) testAgentIntervals.splice(idx, 1);
+            return;
+          }
           PixelAgents.setAgentState(id, states[stateIdx % states.length], 4000);
           stateIdx++;
           refreshSidebar();
         }, 5000);
+        testAgentIntervals.push(interval);
       });
     }
 
