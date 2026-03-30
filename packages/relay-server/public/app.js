@@ -1090,6 +1090,11 @@ nostrBadge.addEventListener("click", () => {
 
 // Restore mode (supports ?mode=peer URL parameter)
 const urlMode = new URLSearchParams(window.location.search).get("mode");
+const urlSeed = new URLSearchParams(window.location.search).get("seed");
+// Store URL seed globally so the pixel integration layer can pick it up
+if (urlSeed && (urlMode === "pixel" || urlMode === "fireplace")) {
+  window.__fireplaceUrlSeed = parseInt(urlSeed, 10) || null;
+}
 const savedMode = urlMode || localStorage.getItem("relay-mode");
 setMode(savedMode || "director");
 
