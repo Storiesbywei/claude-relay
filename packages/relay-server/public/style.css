@@ -31,6 +31,9 @@
   --rail-card-bg: rgba(6,9,18,0.4);
   --rail-card-border: var(--glass-border);
   --rail-section-border: var(--glass-border);
+  --hover-bg: rgba(255,255,255,0.04);
+  --scrollbar-thumb: rgba(255,255,255,0.07);
+  --scrollbar-thumb-hover: rgba(255,255,255,0.12);
 
   /* Accent colors by message type */
   --amber: #E8A020;
@@ -78,6 +81,9 @@
     --rail-card-bg: rgba(255,255,255,0.55);  /* white card on parchment */
     --rail-card-border: rgba(0,0,0,0.06);
     --rail-section-border: rgba(0,0,0,0.06);
+    --hover-bg: rgba(0,0,0,0.03);           /* very subtle darken on hover — NOT blue */
+    --scrollbar-thumb: rgba(0,0,0,0.1);
+    --scrollbar-thumb-hover: rgba(0,0,0,0.18);
 
     /* Accent colors — slightly muted for light backgrounds */
     --amber: #c48a10;
@@ -167,6 +173,7 @@ a:hover { text-decoration: underline; }
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: 24px;
 }
 
@@ -335,6 +342,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh; /* iOS: dynamic viewport — shrinks when keyboard opens */
 }
 
 /* ===== Masthead ===== */
@@ -697,7 +705,7 @@ a:hover { text-decoration: underline; }
 .chronicle-feed::-webkit-scrollbar { width: 6px; }
 .chronicle-feed::-webkit-scrollbar-track { background: transparent; }
 .chronicle-feed::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 3px; }
-.chronicle-feed::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.1); }
+.chronicle-feed::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
 /* Empty state */
 .chronicle-empty {
@@ -795,7 +803,7 @@ a:hover { text-decoration: underline; }
   transition: border-color 0.2s, background 0.2s;
   position: relative;
 }
-.entry-card:hover { background: rgba(13,20,36,0.9); border-color: var(--glass-border-hover); }
+.entry-card:hover { background: var(--card-bg); border-color: var(--glass-border-hover); }
 
 /* Accent classes */
 .ec-arch .entry-card { border-left-color: var(--amber); }
@@ -1063,14 +1071,42 @@ a:hover { text-decoration: underline; }
 .composer-send:active { transform: translateY(0); }
 
 /* ===== Responsive ===== */
+
+/* Tablet — hide sidebar */
 @media (max-width: 900px) {
   .left-rail { display: none; }
   :root { --rail-w: 0px; }
 }
 
+/* Phone — compact layout */
 @media (max-width: 600px) {
   .mast-center { display: none; }
   .entry-time-col { width: 40px; }
+  .composer { padding: 8px 12px 10px; }
+  .composer-tabs { gap: 2px; margin-bottom: 6px; }
+  .composer-tab { padding: 4px 6px; font-size: 8px; letter-spacing: 0.08em; }
+  .composer-input { height: 36px; font-size: 14px; padding: 0 10px; }
+  .composer-send { padding: 0 12px; height: 36px; font-size: 9px; }
+  .entry-card { padding: 10px 12px; }
+  .ec-title { font-size: 16px; }
+  .ec-body { font-size: 12px; }
+}
+
+/* iPad / touch — prevent keyboard from hiding composer */
+@supports (height: 100dvh) {
+  .app-main {
+    height: 100dvh; /* dynamic viewport height — shrinks when keyboard opens */
+  }
+}
+
+/* Ensure composer stays above keyboard on iOS Safari */
+@media (max-height: 500px) {
+  /* Landscape phone or keyboard open — shrink everything */
+  .left-rail { display: none; }
+  :root { --rail-w: 0px; --masthead-h: 44px; }
+  .masthead { padding: 0 12px; }
+  .composer-tabs { display: none; } /* hide tabs when cramped */
+  .chronicle-feed { padding: 8px 12px; }
 }
 
 /* ===== Reduced Motion ===== */

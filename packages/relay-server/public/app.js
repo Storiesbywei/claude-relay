@@ -736,6 +736,9 @@ function init() {
   // Scroll detection for auto-scroll
   initScrollDetection();
 
+  // iOS keyboard handling — keep composer visible
+  initKeyboardHandler();
+
   // Theme switcher
   initTheme();
   document.getElementById('btn-theme').addEventListener('click', cycleTheme);
@@ -744,6 +747,34 @@ function init() {
   setInterval(function() {
     if (state.session) refreshStatus();
   }, 10000);
+}
+
+// --------------- iOS Keyboard Handler ---------------
+// On iOS/iPadOS, the virtual keyboard doesn't resize the viewport in some browsers.
+// Use visualViewport API to shrink the app shell when the keyboard is open.
+
+function initKeyboardHandler() {
+  if (!window.visualViewport) return;
+
+  function onViewportResize() {
+    var shell = document.querySelector('.app-shell');
+    if (!shell) return;
+    // visualViewport.height is the visible area minus the keyboard
+    var keyboardHeight = window.innerHeight - window.visualViewport.height;
+    if (keyboardHeight > 100) {
+      // Keyboard is open — shrink the app
+      shell.style.height = window.visualViewport.height + 'px';
+      // Scroll composer into view
+      var composer = document.querySelector('.composer');
+      if (composer) composer.scrollIntoView({ block: 'end' });
+    } else {
+      // Keyboard closed — restore
+      shell.style.height = '';
+    }
+  }
+
+  window.visualViewport.addEventListener('resize', onViewportResize);
+  window.visualViewport.addEventListener('scroll', onViewportResize);
 }
 
 // --------------- Theme Management ---------------
