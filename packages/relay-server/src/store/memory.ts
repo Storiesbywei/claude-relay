@@ -1,5 +1,12 @@
 import type { Session, StoredMessage, ParticipantInfo } from "@claude-relay/shared";
 import { LIMITS } from "@claude-relay/shared";
+import { timingSafeEqual } from "crypto";
+
+/** Constant-time string comparison to prevent timing attacks (TC-03) */
+function safeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 const sessions = new Map<string, Session>();
 
@@ -53,14 +60,14 @@ export function getSessionByToken(token: string): Session | undefined {
 export function isValidToken(token: string, sessionId: string): boolean {
   const session = sessions.get(sessionId);
   if (!session) return false;
-  if (session.creatorToken === token) return true;
+  if (safeCompare(session.creatorToken, token)) return true;
   return session.participants.has(token);
 }
 
 export function isInviteToken(token: string, sessionId: string): boolean {
   const session = sessions.get(sessionId);
   if (!session) return false;
-  return session.inviteToken === token;
+  return safeCompare(session.inviteToken, token);
 }
 
 export function addParticipant(

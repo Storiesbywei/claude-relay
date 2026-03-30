@@ -6,7 +6,8 @@ const windows = new Map<string, number[]>();
 
 export async function rateLimitMiddleware(c: Context, next: Next) {
   const token = c.get("token") as string | undefined;
-  const key = token || c.req.header("x-forwarded-for") || "anonymous";
+  // Never use x-forwarded-for — trivially spoofable (TC-02)
+  const key = token || "anonymous";
   const now = Date.now();
   const windowMs = 60_000;
 
