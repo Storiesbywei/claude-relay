@@ -1,5 +1,5 @@
 import type { PendingMessage, RelayMessagePayload } from "@claude-relay/shared";
-import { scanContent, sanitizePaths } from "./scanner.js";
+import { scanContent, scanForToolUsePatterns, sanitizePaths, recordScanEvent } from "./scanner.js";
 
 const pendingQueue = new Map<string, PendingMessage>();
 
@@ -21,6 +21,25 @@ export function stageMessage(
       const tagScan = scanContent(tag);
       warnings.push(...tagScan.warnings);
     }
+  }
+
+  // Scan for tool-use / prompt injection patterns
+  const toolUseContent = scanForToolUsePatterns(payload.content);
+  const toolUseTitle = scanForToolUsePatterns(payload.title ?? "");
+  const allToolPatterns = [...toolUseContent.patterns, ...toolUseTitle.patterns];
+  const hasToolUse = toolUseContent.suspicious || toolUseTitle.suspicious;
+
+  if (hasToolUse) {
+    const uniquePatterns = [...new Set(allToolPatterns)];
+    warnings.unshift(
+      `[HIGH RISK] Tool-use/prompt injection patterns detected: ${uniquePatterns.map((p) => `"${p}"`).join(", ")}. Scrutinize this message before approving.`
+    );
+    recordScanEvent("tool_use", `staged msg "${payload.title}": patterns=[${uniquePatterns.join(", ")}]`);
+  }
+
+  // Record sensitive content events
+  if (warnings.length > (hasToolUse ? 1 : 0)) {
+    recordScanEvent("sensitive", `staged msg "${payload.title}": ${warnings.length} warning(s)`);
   }
 
   // Sanitize absolute paths in references

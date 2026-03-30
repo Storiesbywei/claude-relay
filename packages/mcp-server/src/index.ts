@@ -6,6 +6,7 @@ import { registerApproveTool } from "./tools/relay-approve.js";
 import { registerPollTool } from "./tools/relay-poll.js";
 import { registerStatusTool } from "./tools/relay-status.js";
 import { registerWorkspaceTool } from "./tools/relay-workspace.js";
+import { registerSecurityTool } from "./tools/relay-security.js";
 import { loadState } from "./state.js";
 
 const server = new McpServer({
@@ -13,13 +14,14 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-// Register all 7 tools
+// Register all 8 tools
 registerSessionTools(server);   // relay_create_session, relay_join_session
 registerSendTool(server);       // relay_send
 registerApproveTool(server);    // relay_approve
 registerPollTool(server);       // relay_poll
 registerStatusTool(server);     // relay_status
 registerWorkspaceTool(server);  // relay_share_workspace
+registerSecurityTool(server);   // relay_security_status
 
 // Load persisted session state, then connect
 await loadState();
