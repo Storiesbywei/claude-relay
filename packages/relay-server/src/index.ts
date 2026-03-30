@@ -12,7 +12,9 @@ import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { sweepExpiredSessions } from "./store/memory.js";
 import { RELAY_PORT, LIMITS, RELAY_INFO } from "@claude-relay/shared";
-import { handleOpen, handleClose, handleMessage, getNostrStats, setCanonicalRelayUrl } from "./nostr/handler.js";
+import { handleOpen, handleClose, handleMessage, getNostrStats, setCanonicalRelayUrl, onNostrRelayEvent } from "./nostr/handler.js";
+import { bridgeNostrToHttp, getServerKeypair } from "./nostr/bridge.js";
+import { disconnectAll as disconnectRelayPool, setPoolKeypair } from "./nostr/relay-pool.js";
 
 const app = new Hono();
 
@@ -94,6 +96,7 @@ const sweepInterval = setInterval(() => {
 // Graceful shutdown
 const shutdown = () => {
   clearInterval(sweepInterval);
+  disconnectRelayPool();
   console.log("\n[relay] Shutting down...");
   process.exit(0);
 };
@@ -105,6 +108,17 @@ const port = Number(process.env.RELAY_PORT || RELAY_PORT);
 // Set canonical relay URL for NIP-42 validation
 const canonicalWsUrl = `ws://localhost:${port}`;
 setCanonicalRelayUrl(canonicalWsUrl);
+
+// Wire server keypair to relay pool for NIP-42 auth with external relays
+setPoolKeypair(getServerKeypair());
+
+// Wire Nostr→HTTP bridge: relay-kind events from WebSocket get injected into HTTP sessions
+onNostrRelayEvent((event) => {
+  const injected = bridgeNostrToHttp(event);
+  if (injected) {
+    console.log(`[nostr→http] Bridged event ${event.id.slice(0, 8)} into session`);
+  }
+});
 
 console.log(`[relay] Claude Relay server starting on http://0.0.0.0:${port}`);
 console.log(`[relay] Nostr WebSocket relay available at ${canonicalWsUrl}`);

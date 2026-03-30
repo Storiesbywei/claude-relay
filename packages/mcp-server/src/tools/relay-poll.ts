@@ -1,7 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { eventToMessage } from "@claude-relay/shared";
 import * as client from "../client/relay-client.js";
-import { getActiveSession, updateCursor, saveState } from "../state.js";
+import { getActiveSession, updateCursor, saveState, getNostrClient } from "../state.js";
 
 export function registerPollTool(server: McpServer) {
   server.tool(
@@ -14,8 +15,13 @@ export function registerPollTool(server: McpServer) {
         .optional()
         .default(10)
         .describe("Max messages to return"),
+      via_nostr: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe("Drain buffered Nostr WebSocket events instead of HTTP polling"),
     },
-    async ({ session_id, limit }) => {
+    async ({ session_id, limit, via_nostr }) => {
       const session = getActiveSession(session_id);
       if (!session) {
         return {
@@ -26,6 +32,96 @@ export function registerPollTool(server: McpServer) {
             },
           ],
           isError: true,
+        };
+      }
+
+      // Nostr WebSocket drain path
+      if (via_nostr) {
+        const nostrClient = getNostrClient(session_id);
+        if (!nostrClient || nostrClient.status !== "ready") {
+          // Fall back to HTTP with a note
+          try {
+            const result = await client.pollMessages(
+              session_id,
+              session.token,
+              session.cursor,
+              limit
+            );
+            if (result.cursor > session.cursor) {
+              updateCursor(session_id, result.cursor);
+              await saveState();
+            }
+            const fallbackNote = nostrClient
+              ? `[Nostr WS status: ${nostrClient.status} — falling back to HTTP]\n\n`
+              : `[No Nostr WS connection — use relay_nostr_connect first. Falling back to HTTP]\n\n`;
+            if (result.messages.length === 0) {
+              return {
+                content: [{
+                  type: "text" as const,
+                  text: `${fallbackNote}No new messages in session "${session.name}".`,
+                }],
+              };
+            }
+            const formatted = result.messages
+              .map((m) => {
+                let text = `## [${m.type}] ${m.title}\n`;
+                text += `From: ${m.sender_name || "unknown"} | Seq: ${m.sequence} | ${m.sent_at}\n\n`;
+                text += m.content;
+                if (m.tags?.length) text += `\n\nTags: ${m.tags.join(", ")}`;
+                return text;
+              })
+              .join("\n\n---\n\n");
+            return {
+              content: [{
+                type: "text" as const,
+                text: `${fallbackNote}${result.messages.length} message(s) via HTTP fallback:\n\n${formatted}`,
+              }],
+            };
+          } catch (err: any) {
+            return {
+              content: [{
+                type: "text" as const,
+                text: `No Nostr WS available and HTTP poll failed: ${err.message}`,
+              }],
+              isError: true,
+            };
+          }
+        }
+
+        const events = nostrClient.drainBuffer();
+        if (events.length === 0) {
+          return {
+            content: [{
+              type: "text" as const,
+              text: `No new Nostr events buffered for session "${session.name}".\nWebSocket status: ${nostrClient.status} | Buffer: 0`,
+            }],
+          };
+        }
+
+        const messages = events.slice(0, limit).map(eventToMessage);
+        const formatted = messages
+          .map((m) => {
+            let text = `## [${m.type}] ${m.title}\n`;
+            text += `From: ${m.sender_name || "unknown"} | ${m.sent_at}\n\n`;
+            text += m.content;
+            if (m.tags?.length) text += `\n\nTags: ${m.tags.join(", ")}`;
+            if (m.references?.length) {
+              text += `\n\nReferences:\n${m.references.map((r) => `  - ${r.file}${r.lines ? `:${r.lines}` : ""}${r.note ? ` (${r.note})` : ""}`).join("\n")}`;
+            }
+            return text;
+          })
+          .join("\n\n---\n\n");
+
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              `${messages.length} event(s) via Nostr WebSocket in "${session.name}":`,
+              events.length > limit ? `(${events.length - limit} more events remain in buffer)` : "",
+              "",
+              formatted,
+            ].filter(Boolean).join("\n"),
+          }],
         };
       }
 

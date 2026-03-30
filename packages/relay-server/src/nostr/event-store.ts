@@ -1,5 +1,5 @@
 import type { NostrEvent, NostrFilter } from "@claude-relay/shared";
-import { ALL_RELAY_KINDS, SESSION_KIND, METADATA_KIND, AUTH_KIND } from "@claude-relay/shared";
+import { ALL_RELAY_KINDS } from "@claude-relay/shared";
 import { matchesFilter } from "./subscriptions.js";
 
 const MAX_EVENTS = 10_000; // Cap to prevent OOM
@@ -18,6 +18,10 @@ export class EventStore {
 
   /** Store an event, respecting NIP-01 kind semantics. Returns true if stored. */
   store(event: NostrEvent): { stored: boolean; reason?: string } {
+    if (!event.id || !/^[0-9a-f]{64}$/.test(event.id)) {
+      return { stored: false, reason: "invalid: malformed event id" };
+    }
+
     // Reject duplicates
     if (this.events.has(event.id)) {
       return { stored: false, reason: "duplicate:" };
@@ -72,6 +76,8 @@ export class EventStore {
 
   /** Query events matching filters (multiple filters are OR-ed) */
   query(filters: NostrFilter[]): NostrEvent[] {
+    if (!Array.isArray(filters)) return [];
+
     const results: NostrEvent[] = [];
     const seen = new Set<string>();
 

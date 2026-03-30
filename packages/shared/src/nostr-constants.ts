@@ -32,9 +32,10 @@ export const ALL_RELAY_KINDS = Object.values(NOSTR_EVENT_KINDS);
 export const SESSION_KIND = 30078; // Addressable: application-specific data (NIP-78)
 export const METADATA_KIND = 0; // Replaceable: user/session metadata (NIP-01)
 export const AUTH_KIND = 22242; // Ephemeral: NIP-42 authentication
+export const DELETION_KIND = 5; // NIP-09: Event deletion
 
 // Supported NIPs advertised in NIP-11 relay info
-export const SUPPORTED_NIPS = [1, 11, 42, 70] as const;
+export const SUPPORTED_NIPS = [1, 9, 11, 42, 70] as const;
 
 // NIP-11 relay information document
 export const RELAY_INFO = {

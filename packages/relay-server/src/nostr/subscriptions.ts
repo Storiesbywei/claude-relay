@@ -67,6 +67,21 @@ export function matchesFilter(event: NostrEvent, filter: NostrFilter): boolean {
   return true;
 }
 
+/** Validate a filter doesn't have excessively large arrays */
+export function validateFilter(filter: NostrFilter): { valid: boolean; reason?: string } {
+  const MAX_ARRAY_SIZE = 1000;
+  if (filter.ids && filter.ids.length > MAX_ARRAY_SIZE) {
+    return { valid: false, reason: `ids array too large (max ${MAX_ARRAY_SIZE})` };
+  }
+  if (filter.authors && filter.authors.length > MAX_ARRAY_SIZE) {
+    return { valid: false, reason: `authors array too large (max ${MAX_ARRAY_SIZE})` };
+  }
+  if (filter.kinds && filter.kinds.length > MAX_ARRAY_SIZE) {
+    return { valid: false, reason: `kinds array too large (max ${MAX_ARRAY_SIZE})` };
+  }
+  return { valid: true };
+}
+
 /** Check if an event matches any filter in a subscription (OR logic) */
 export function matchesSubscription(event: NostrEvent, sub: Subscription): boolean {
   return sub.filters.some((filter) => matchesFilter(event, filter));

@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as relayClient from "../client/relay-client.js";
-import { getActiveSessions } from "../state.js";
+import { getActiveSessions, getNostrClient } from "../state.js";
 import { getPendingCount } from "../approval/queue.js";
 
 export function registerStatusTool(server: McpServer) {
@@ -55,6 +55,10 @@ export function registerStatusTool(server: McpServer) {
             session_id,
             local.token
           );
+          const nostrWsClient = getNostrClient(session_id);
+          const nostrWsStatus = nostrWsClient
+            ? `connected (${nostrWsClient.bufferedCount} buffered events)`
+            : "not connected";
           return {
             content: [
               {
@@ -67,6 +71,7 @@ export function registerStatusTool(server: McpServer) {
                   `Messages: ${info.message_count}`,
                   `Local cursor: ${local.cursor}`,
                   ...(local.nostr ? [`Nostr Identity: ${local.nostr.npub}`] : []),
+                  `Nostr WebSocket: ${nostrWsStatus}`,
                   `Created: ${info.created_at}`,
                   `Expires: ${info.expires_at}`,
                   `Last activity: ${info.last_activity_at}`,

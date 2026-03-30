@@ -1,5 +1,5 @@
 import { generateSecretKey, getPublicKey, finalizeEvent, verifyEvent } from "nostr-tools/pure";
-import { npubEncode, nsecEncode } from "nostr-tools/nip19";
+import { npubEncode, nsecEncode, decode as nip19Decode } from "nostr-tools/nip19";
 import type { NostrKeypair, NostrEvent, UnsignedEvent } from "./nostr-types.js";
 
 /** Generate a fresh Nostr keypair */
@@ -12,11 +12,6 @@ export function generateKeypair(): NostrKeypair {
     npub: npubEncode(publicKey),
     nsec: nsecEncode(privateKey),
   };
-}
-
-/** Derive public key from private key */
-export function pubkeyFromSecret(secretKey: Uint8Array): string {
-  return getPublicKey(secretKey);
 }
 
 /** Sign an event template, producing a fully signed NostrEvent */
@@ -88,18 +83,20 @@ export function validateAuthEvent(
   return { valid: true };
 }
 
-/** Hex-encode a Uint8Array */
-export function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/** Decode hex string to Uint8Array */
-export function fromHex(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+/** Reconstruct a full NostrKeypair from stored bech32 strings */
+export function reconstructKeypair(stored: {
+  pubkey: string;
+  npub: string;
+  nsec: string;
+}): NostrKeypair {
+  const decoded = nip19Decode(stored.nsec);
+  if (decoded.type !== "nsec") {
+    throw new Error("Invalid nsec encoding");
   }
-  return bytes;
+  return {
+    privateKey: decoded.data as Uint8Array,
+    publicKey: stored.pubkey,
+    npub: stored.npub,
+    nsec: stored.nsec,
+  };
 }

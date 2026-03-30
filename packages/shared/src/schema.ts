@@ -48,6 +48,13 @@ export const RelayMessageSchema = RelayMessagePayloadSchema.extend({
 
 // --- Session Types ---
 
+// Hex-encoded Nostr public key (64 characters)
+export const NostrPubkeySchema = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/, "Must be a 64-character lowercase hex string")
+  .optional()
+  .describe("Nostr public key (hex) to bind to this session");
+
 export const CreateSessionRequestSchema = z.object({
   name: z.string().min(1).max(100).describe("Human-readable session name"),
   ttl_minutes: z
@@ -57,10 +64,12 @@ export const CreateSessionRequestSchema = z.object({
     .max(LIMITS.MAX_TTL_MINUTES)
     .default(LIMITS.DEFAULT_TTL_MINUTES)
     .optional(),
+  nostr_pubkey: NostrPubkeySchema,
 });
 
 export const JoinSessionRequestSchema = z.object({
   participant_name: z.string().max(100).optional(),
+  nostr_pubkey: NostrPubkeySchema,
 });
 
 // --- Inferred Types ---
@@ -69,6 +78,6 @@ export type MessageType = z.infer<typeof MessageTypeSchema>;
 export type FileReference = z.infer<typeof FileReferenceSchema>;
 export type MessageContext = z.infer<typeof MessageContextSchema>;
 export type RelayMessagePayload = z.infer<typeof RelayMessagePayloadSchema>;
-export type RelayMessage = z.infer<typeof RelayMessageSchema>;
+export type StoredRelayMessage = z.infer<typeof RelayMessageSchema>;
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
 export type JoinSessionRequest = z.infer<typeof JoinSessionRequestSchema>;

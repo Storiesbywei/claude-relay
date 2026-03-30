@@ -6,6 +6,9 @@ const sessions = new Map<string, Session>();
 // Token → session ID lookup for auth
 const tokenIndex = new Map<string, string>();
 
+// Nostr pubkey (hex) → session ID lookup for WS→HTTP bridge
+const pubkeyIndex = new Map<string, string>();
+
 export function createSession(
   id: string,
   name: string,
@@ -29,6 +32,7 @@ export function createSession(
     createdAt: now,
     expiresAt: new Date(now.getTime() + ttlMinutes * 60_000),
     lastActivityAt: now,
+    nostrPubkeys: new Map(),
   };
 
   sessions.set(id, session);
@@ -80,6 +84,40 @@ export function addParticipant(
   tokenIndex.set(token, sessionId);
   session.lastActivityAt = new Date();
   return info;
+}
+
+// --- Nostr pubkey binding ---
+
+export function bindPubkeyToSession(
+  sessionId: string,
+  pubkey: string,
+  token: string
+): void {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+  session.nostrPubkeys.set(pubkey, token);
+  pubkeyIndex.set(pubkey, sessionId);
+}
+
+export function getSessionByPubkey(
+  pubkey: string
+): { session: Session; token: string } | undefined {
+  const sessionId = pubkeyIndex.get(pubkey);
+  if (!sessionId) return undefined;
+  const session = sessions.get(sessionId);
+  if (!session) return undefined;
+  const token = session.nostrPubkeys.get(pubkey);
+  if (!token) return undefined;
+  return { session, token };
+}
+
+export function hasMessageWithEventId(
+  sessionId: string,
+  eventId: string
+): boolean {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  return session.messages.some((m) => m.nostr_event_id === eventId);
 }
 
 // SSE subscribers: sessionId → Set of callbacks
@@ -154,6 +192,9 @@ export function sweepExpiredSessions(): number {
       tokenIndex.delete(session.creatorToken);
       for (const [token] of session.participants) {
         tokenIndex.delete(token);
+      }
+      for (const [pubkey] of session.nostrPubkeys) {
+        pubkeyIndex.delete(pubkey);
       }
       sessions.delete(id);
       sseSubscribers.delete(id);

@@ -2,12 +2,10 @@ import type { ServerWebSocket } from "bun";
 import type {
   NostrEvent,
   NostrFilter,
-  ClientMessage,
-  RelayMessage,
 } from "@claude-relay/shared";
 import { verifySignedEvent, validateAuthEvent, RELAY_INFO, LIMITS } from "@claude-relay/shared";
 import { eventStore } from "./event-store.js";
-import { SubscriptionManager, matchesSubscription } from "./subscriptions.js";
+import { SubscriptionManager, matchesSubscription, validateFilter } from "./subscriptions.js";
 import { isRelayEventKind, eventToMessage, setBroadcastFn } from "./bridge.js";
 
 // ---- Configuration ----
@@ -183,9 +181,25 @@ function handleEvent(
     return;
   }
 
+  // Validate event ID format (64 hex chars)
+  if (!/^[0-9a-f]{64}$/.test(event.id)) {
+    send(ws, ["OK", event.id || "", false, "invalid: malformed event id"]);
+    return;
+  }
+  if (!/^[0-9a-f]{64}$/.test(event.pubkey)) {
+    send(ws, ["OK", event.id, false, "invalid: malformed pubkey"]);
+    return;
+  }
+
   // FIX: Enforce auth_required — reject unauthenticated clients
   if (!state.authedPubkey) {
     send(ws, ["OK", event.id, false, "auth-required: please authenticate first"]);
+    return;
+  }
+
+  // Enforce pubkey must match authenticated identity (supersedes NIP-70 check)
+  if (state.authedPubkey !== event.pubkey) {
+    send(ws, ["OK", event.id, false, "restricted: event pubkey must match authenticated identity"]);
     return;
   }
 
@@ -195,17 +209,27 @@ function handleEvent(
     return;
   }
 
-  // For protected events (NIP-70), require pubkey match
-  if (event.tags.some((t) => t[0] === "-")) {
-    if (state.authedPubkey !== event.pubkey) {
-      send(ws, [
-        "OK",
-        event.id,
-        false,
-        "auth-required: protected events must be published by the authenticated user",
-      ]);
-      return;
-    }
+  // Content size check
+  if (event.content.length > MAX_WS_MESSAGE_SIZE) {
+    send(ws, ["OK", event.id, false, "invalid: content too large"]);
+    return;
+  }
+
+  // Tag count check
+  if (event.tags.length > (RELAY_INFO.limitation.max_event_tags ?? 100)) {
+    send(ws, ["OK", event.id, false, "invalid: too many tags"]);
+    return;
+  }
+
+  // Timestamp bounds: reject events too far in the future or too old
+  const now = Math.floor(Date.now() / 1000);
+  if (event.created_at > now + 900) {
+    send(ws, ["OK", event.id, false, "invalid: created_at too far in future"]);
+    return;
+  }
+  if (event.created_at < now - 3600) {
+    send(ws, ["OK", event.id, false, "invalid: created_at too old"]);
+    return;
   }
 
   // Store the event
@@ -217,6 +241,19 @@ function handleEvent(
   }
 
   send(ws, ["OK", event.id, true, ""]);
+
+  // NIP-09: Handle deletion events
+  if (event.kind === 5) {
+    const idsToDelete = event.tags
+      .filter((t) => t[0] === "e")
+      .map((t) => t[1]);
+    if (idsToDelete.length > 0) {
+      const deleted = eventStore.deleteByIds(idsToDelete, event.pubkey);
+      if (deleted > 0) {
+        console.log(`[nostr] NIP-09: Deleted ${deleted} event(s) by ${event.pubkey.slice(0, 8)}`);
+      }
+    }
+  }
 
   // Broadcast to all matching subscribers
   broadcastEvent(event);
@@ -266,6 +303,15 @@ function handleReq(
       `error: too many subscriptions (max ${RELAY_INFO.limitation.max_subscriptions})`,
     ]);
     return;
+  }
+
+  // Validate individual filters
+  for (const filter of filters) {
+    const validation = validateFilter(filter);
+    if (!validation.valid) {
+      send(ws, ["CLOSED", subscriptionId, `error: ${validation.reason}`]);
+      return;
+    }
   }
 
   // Replace existing subscription with same ID

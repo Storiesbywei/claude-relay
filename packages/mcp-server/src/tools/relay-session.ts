@@ -27,8 +27,8 @@ export function registerSessionTools(server: McpServer) {
     },
     async ({ name, ttl_minutes }) => {
       try {
-        const result = await client.createSession(name, ttl_minutes);
         const kp = generateKeypair();
+        const result = await client.createSession(name, ttl_minutes, kp.publicKey);
 
         addActiveSession({
           session_id: result.session_id,
@@ -93,12 +93,13 @@ export function registerSessionTools(server: McpServer) {
     },
     async ({ session_id, invite_token, participant_name }) => {
       try {
+        const kp = generateKeypair();
         const result = await client.joinSession(
           session_id,
           invite_token,
-          participant_name
+          participant_name,
+          kp.publicKey
         );
-        const kp = generateKeypair();
 
         addActiveSession({
           session_id,

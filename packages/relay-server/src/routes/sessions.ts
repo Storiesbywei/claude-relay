@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { CreateSessionRequestSchema } from "@claude-relay/shared";
+import { CreateSessionRequestSchema, JoinSessionRequestSchema } from "@claude-relay/shared";
 import {
   createSession,
   getSession,
@@ -7,6 +7,7 @@ import {
   isInviteToken,
   isValidToken,
   getParticipantNames,
+  bindPubkeyToSession,
 } from "../store/memory.js";
 
 export const sessionRoutes = new Hono();
@@ -20,7 +21,7 @@ sessionRoutes.post("/", async (c) => {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
 
-  const { name, ttl_minutes } = parsed.data;
+  const { name, ttl_minutes, nostr_pubkey } = parsed.data;
   const sessionId = crypto.randomUUID();
   const creatorToken = crypto.randomUUID();
   const inviteToken = crypto.randomUUID();
@@ -34,12 +35,17 @@ sessionRoutes.post("/", async (c) => {
       ttl_minutes ?? 60
     );
 
+    if (nostr_pubkey) {
+      bindPubkeyToSession(sessionId, nostr_pubkey, creatorToken);
+    }
+
     return c.json(
       {
         session_id: session.id,
         creator_token: creatorToken,
         invite_token: inviteToken,
         expires_at: session.expiresAt.toISOString(),
+        ...(nostr_pubkey && { nostr_pubkey }),
       },
       201
     );
@@ -96,11 +102,19 @@ sessionRoutes.post("/:id/join", async (c) => {
   }
 
   const body = await c.req.json().catch(() => ({}));
-  const participantName = body.participant_name || "anonymous";
+  const parsed = JoinSessionRequestSchema.safeParse(body);
+  const participantName = parsed.success
+    ? (parsed.data.participant_name || "anonymous")
+    : (body.participant_name || "anonymous");
+  const nostrPubkey = parsed.success ? parsed.data.nostr_pubkey : undefined;
   const participantToken = crypto.randomUUID();
 
   try {
     addParticipant(id, participantToken, participantName);
+
+    if (nostrPubkey) {
+      bindPubkeyToSession(id, nostrPubkey, participantToken);
+    }
 
     return c.json({
       participant_token: participantToken,
@@ -110,6 +124,7 @@ sessionRoutes.post("/:id/join", async (c) => {
         participants: getParticipantNames(session),
         message_count: session.messages.length,
         expires_at: session.expiresAt.toISOString(),
+        ...(nostrPubkey && { nostr_pubkey: nostrPubkey }),
       },
     });
   } catch (err: any) {

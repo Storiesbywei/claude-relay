@@ -49,7 +49,7 @@ relayRoutes.post("/:session_id", async (c) => {
     addMessage(sessionId, message);
 
     // Bridge: also publish to Nostr event store so WS subscribers get it
-    bridgeMessageToNostr(message);
+    bridgeMessageToNostr(message, sessionId);
 
     return c.json(
       {

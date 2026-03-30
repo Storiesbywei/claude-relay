@@ -47,23 +47,32 @@ function authHeaders(token: string) {
 
 export async function createSession(
   name: string,
-  ttlMinutes?: number
+  ttlMinutes?: number,
+  nostrPubkey?: string
 ): Promise<CreateSessionResponse> {
   return request<CreateSessionResponse>("/sessions", {
     method: "POST",
-    body: JSON.stringify({ name, ttl_minutes: ttlMinutes }),
+    body: JSON.stringify({
+      name,
+      ttl_minutes: ttlMinutes,
+      ...(nostrPubkey ? { nostr_pubkey: nostrPubkey } : {}),
+    }),
   });
 }
 
 export async function joinSession(
   sessionId: string,
   inviteToken: string,
-  participantName?: string
+  participantName?: string,
+  nostrPubkey?: string
 ): Promise<JoinSessionResponse> {
   return request<JoinSessionResponse>(`/sessions/${sessionId}/join`, {
     method: "POST",
     headers: authHeaders(inviteToken),
-    body: JSON.stringify({ participant_name: participantName }),
+    body: JSON.stringify({
+      participant_name: participantName,
+      ...(nostrPubkey ? { nostr_pubkey: nostrPubkey } : {}),
+    }),
   });
 }
 
@@ -105,4 +114,10 @@ export async function healthCheck(): Promise<{
   sessions: number;
 }> {
   return request("/health");
+}
+
+/** Convert HTTP relay URL to WebSocket URL */
+export function getRelayWsUrl(): string {
+  const httpUrl = process.env.RELAY_URL || "http://localhost:4190";
+  return httpUrl.replace(/^http/, "ws");
 }

@@ -12,12 +12,15 @@
 import type { StoredMessage, NostrEvent, UnsignedEvent } from "@claude-relay/shared";
 import {
   NOSTR_EVENT_KINDS,
-  KIND_TO_MESSAGE_TYPE,
   ALL_RELAY_KINDS,
+  SESSION_TAG,
   generateKeypair,
   signEvent,
+  eventToMessage,
 } from "@claude-relay/shared";
 import { eventStore } from "./event-store.js";
+import { getSessionByPubkey, addMessage, getSession, hasMessageWithEventId } from "../store/memory.js";
+import { publishToExternal } from "./relay-pool.js";
 
 // Lazy import to avoid circular dependency — set by handler.ts init
 let _broadcastEvent: ((event: NostrEvent) => void) | null = null;
@@ -33,7 +36,7 @@ const serverKeypair = generateKeypair();
 console.log(`[nostr] Bridge server pubkey: ${serverKeypair.npub}`);
 
 /** Convert a StoredMessage (from HTTP API) to a signed Nostr event */
-export function messageToEvent(msg: StoredMessage): NostrEvent {
+export function messageToEvent(msg: StoredMessage, sessionId?: string): NostrEvent {
   const kind = NOSTR_EVENT_KINDS[msg.type as keyof typeof NOSTR_EVENT_KINDS];
   if (!kind) {
     // Fallback to "context" kind for unknown types
@@ -79,6 +82,11 @@ export function messageToEvent(msg: StoredMessage): NostrEvent {
     if (msg.context.branch) tags.push(["branch", msg.context.branch]);
   }
 
+  // Session scoping tag
+  if (sessionId) {
+    tags.push([SESSION_TAG, sessionId]);
+  }
+
   // Bridge marker — identifies events created via HTTP, not native Nostr
   tags.push(["bridge", "http"]);
 
@@ -100,67 +108,19 @@ export function messageToEvent(msg: StoredMessage): NostrEvent {
   return signEvent(template, serverKeypair.privateKey);
 }
 
-/** Convert a Nostr event (from WebSocket) to a StoredMessage */
-export function eventToMessage(event: NostrEvent): StoredMessage {
-  const type = KIND_TO_MESSAGE_TYPE[event.kind] ?? "context";
-
-  const titleTag = event.tags.find((t) => t[0] === "title");
-  const senderTag = event.tags.find((t) => t[0] === "sender");
-
-  // FIX: Extract searchable tags — only "t" tags, excluding the message type value
-  const tags = event.tags
-    .filter((t) => t[0] === "t")
-    .map((t) => t[1])
-    // Remove the message type itself from tags
-    .filter((t) => t !== type);
-
-  // Extract file references
-  const references = event.tags
-    .filter((t) => t[0] === "r")
-    .map((t) => ({
-      file: t[1],
-      lines: t[2] || undefined,
-      note: t[3] || undefined,
-    }));
-
-  // Extract context
-  const projectTag = event.tags.find((t) => t[0] === "project");
-  const stackTag = event.tags.find((t) => t[0] === "stack");
-  const branchTag = event.tags.find((t) => t[0] === "branch");
-  const context =
-    projectTag || stackTag || branchTag
-      ? {
-          project: projectTag?.[1],
-          stack: stackTag?.[1],
-          branch: branchTag?.[1],
-        }
-      : undefined;
-
-  return {
-    message_id: event.id,
-    sequence: 0, // Will be assigned by the session store
-    type,
-    title: titleTag?.[1] ?? "",
-    content: event.content,
-    tags: tags.length > 0 ? tags : undefined,
-    references: references.length > 0 ? references : undefined,
-    context,
-    sender_name: senderTag?.[1] ?? `nostr:${event.pubkey.slice(0, 8)}`,
-    sent_at: new Date(event.created_at * 1000).toISOString(),
-  };
-}
-
 /**
  * Publish a StoredMessage (from HTTP API) to the Nostr event store
  * and broadcast to WebSocket subscribers.
  */
-export function bridgeMessageToNostr(msg: StoredMessage): NostrEvent {
-  const event = messageToEvent(msg);
+export function bridgeMessageToNostr(msg: StoredMessage, sessionId?: string): NostrEvent {
+  const event = messageToEvent(msg, sessionId);
   eventStore.store(event);
   // Broadcast to all WS subscribers
   if (_broadcastEvent) {
     _broadcastEvent(event);
   }
+  // Forward to external relays
+  publishToExternal(event);
   return event;
 }
 
@@ -177,4 +137,56 @@ export function getServerPubkey(): string {
 /** Get the server's npub (for display) */
 export function getServerNpub(): string {
   return serverKeypair.npub;
+}
+
+/** Get the server's keypair (for relay pool signing) */
+export function getServerKeypair() {
+  return serverKeypair;
+}
+
+/**
+ * Bridge a Nostr event (from WebSocket) into an HTTP session.
+ * Returns true if the event was injected, false if no matching session found.
+ */
+export function bridgeNostrToHttp(event: NostrEvent): boolean {
+  // Skip events we created (bridge marker) to avoid loops
+  if (event.tags.some((t) => t[0] === "bridge" && t[1] === "http")) {
+    return false;
+  }
+
+  // Determine target session: try pubkey binding first, then session tag
+  let targetSessionId: string | undefined;
+
+  const binding = getSessionByPubkey(event.pubkey);
+  if (binding) {
+    targetSessionId = binding.session.id;
+  }
+
+  if (!targetSessionId) {
+    const sessionTag = event.tags.find((t) => t[0] === SESSION_TAG);
+    if (sessionTag?.[1]) {
+      const session = getSession(sessionTag[1]);
+      if (session) {
+        targetSessionId = session.id;
+      }
+    }
+  }
+
+  if (!targetSessionId) return false;
+
+  // Dedup: skip if this event was already injected
+  if (hasMessageWithEventId(targetSessionId, event.id)) {
+    return false;
+  }
+
+  const msg = eventToMessage(event);
+  msg.nostr_event_id = event.id;
+
+  try {
+    addMessage(targetSessionId, msg);
+    return true;
+  } catch {
+    // Session full or expired
+    return false;
+  }
 }

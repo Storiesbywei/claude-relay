@@ -35,6 +35,10 @@ export const MESSAGE_TYPES = [
 ] as const;
 
 // Patterns that suggest sensitive content
+// Nostr tag name used to scope events to a relay session
+export const SESSION_TAG = "session";
+
+// Patterns that suggest sensitive content
 export const SENSITIVE_PATTERNS = [
   /\b(sk-[a-zA-Z0-9]{20,})/,              // OpenAI/Anthropic keys
   /\b(ghp_[a-zA-Z0-9]{36,})/,             // GitHub PATs
