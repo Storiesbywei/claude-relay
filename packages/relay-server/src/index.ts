@@ -8,9 +8,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 import { healthRoutes } from "./routes/health.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { relayRoutes } from "./routes/relay.js";
+import { solidSyncRoutes } from "./routes/solid-sync.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { sweepExpiredSessions } from "./store/sqlite.js";
+import { syncEngine } from "./solid/sync-engine.js";
 import { RELAY_PORT, LIMITS, RELAY_INFO } from "@claude-relay/shared";
 import { handleOpen, handleClose, handleMessage, handlePong, getNostrStats, setCanonicalRelayUrl, onNostrRelayEvent } from "./nostr/handler.js";
 import { bridgeNostrToHttp, getServerKeypair } from "./nostr/bridge.js";
@@ -74,9 +76,11 @@ app.route("/relay", relayRoutes);
 // Nostr relay pool management (auth handled in route handlers)
 app.route("/nostr", nostrRelayRoutes);
 
-// Solid Pod export routes (require auth)
+// Solid Pod routes (export + sync + federation, auth required)
 app.use("/solid/:session_id/*", authMiddleware);
+app.use("/solid/:session_id", authMiddleware);
 app.route("/solid", solidRoutes);
+app.route("/solid", solidSyncRoutes);
 
 // Dashboard (static files)
 const publicDir = resolve(__dirname, "../public");
@@ -103,12 +107,17 @@ const sweepInterval = setInterval(() => {
   }
 }, LIMITS.TTL_SWEEP_INTERVAL_MS);
 
+// Solid sync engine — start background worker and catch up any gaps
+syncEngine.start();
+syncEngine.catchUp();
+
 // Graceful shutdown
 const shutdown = () => {
   clearInterval(sweepInterval);
   disconnectRelayPool();
   shutdownPool();
   clearSessionCache();
+  syncEngine.stop();
   console.log("\n[relay] Shutting down...");
   process.exit(0);
 };
