@@ -101,3 +101,17 @@ export async function writeMessageToPod(
 
   await saveSolidDatasetAt(messageUrl, dataset, { fetch: fetchFn });
 }
+
+/**
+ * Validate that the provided Solid credentials can access the Pod.
+ * Attempts to authenticate and read the Pod root.
+ * Throws on failure.
+ */
+export async function validatePodAccess(config: SolidExportConfig): Promise<void> {
+  const authSession = await getAuthenticatedSession(config);
+  const podUrl = config.podUrl.endsWith("/") ? config.podUrl : config.podUrl + "/";
+  const res = await authSession.fetch(podUrl, { method: "HEAD" });
+  if (!res.ok) {
+    throw new Error(`Pod access check failed: HTTP ${res.status}`);
+  }
+}

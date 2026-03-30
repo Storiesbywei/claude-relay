@@ -268,7 +268,7 @@ const stmts = {
     SELECT 1 FROM sessions WHERE id = $session_id AND invite_token = $token LIMIT 1
   `),
 
-<<<<<<< HEAD
+
   // -------------------------------------------------------------------------
   // Solid sync queue + config prepared statements
   // -------------------------------------------------------------------------
@@ -716,7 +716,7 @@ export function getSessionCount(): number {
 }
 
 // ---------------------------------------------------------------------------
-<<<<<<< HEAD
+
 // Solid Pod sync — store helpers
 // ---------------------------------------------------------------------------
 

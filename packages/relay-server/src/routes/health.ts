@@ -1,12 +1,9 @@
 import { Hono } from "hono";
 import { getSessionCount } from "../store/sqlite.js";
 import { getNostrStats } from "../nostr/handler.js";
-<<<<<<< HEAD
 import { getServerNpub } from "../nostr/bridge.js";
 import { getPoolStatus } from "../nostr/relay-pool.js";
-=======
-import { syncEngine, getEnabledSessionCount, getQueueDepth } from "../solid/index.js";
->>>>>>> worktree-agent-a89c3f44
+import { syncEngine } from "../solid/sync-engine.js";
 
 export const healthRoutes = new Hono();
 
@@ -16,18 +13,14 @@ healthRoutes.get("/", (c) => {
     status: "ok",
     version: "0.3.0",
     sessions: getSessionCount(),
-<<<<<<< HEAD
     nostr: {
       ...getNostrStats(),
       server_pubkey: getServerNpub(),
       external_relays: getPoolStatus(),
-=======
-    nostr: getNostrStats(),
+    },
     solid: {
       sync_engine: solidStats.running ? "running" : "stopped",
-      queue_depth: getQueueDepth(),
-      enabled_sessions: getEnabledSessionCount(),
->>>>>>> worktree-agent-a89c3f44
+      queue_depth: solidStats.queueDepth,
     },
     uptime_seconds: Math.floor(process.uptime()),
   });
