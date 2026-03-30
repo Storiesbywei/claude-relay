@@ -6,7 +6,7 @@
  */
 
 import { Hono } from "hono";
-import { getSession } from "../store/memory.js";
+import { getSession } from "../store/sqlite.js";
 import {
   setSolidConfig,
   getSolidConfig,

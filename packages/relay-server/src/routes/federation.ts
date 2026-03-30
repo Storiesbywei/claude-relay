@@ -19,7 +19,7 @@ import {
   getRuntimeEntries,
   type FederationProtocol,
 } from "../federation/allowlist.js";
-import { isValidToken } from "../store/memory.js";
+import { isValidToken } from "../store/sqlite.js";
 
 export const federationRoutes = new Hono();
 

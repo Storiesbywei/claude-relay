@@ -26,7 +26,7 @@ import {
   enqueue,
 } from "./solid-store.js";
 import { writeMessageToPod } from "./pod-writer.js";
-import { getSession } from "../store/memory.js";
+import { getSession } from "../store/sqlite.js";
 
 const BATCH_SIZE = 10;
 const POLL_INTERVAL_MS = 2_000;
