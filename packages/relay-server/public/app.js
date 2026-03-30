@@ -281,19 +281,70 @@ async function loadHistory() {
   } catch { /* session may have expired */ }
 }
 
+// Participant color mapping for badges (Sprint 2: identity badges)
+const PARTICIPANT_COLORS = ["creator", "participant-1", "participant-2", "participant-3"];
+
+// Track participant list for badge rendering
+state.participants = [];
+
 async function checkParticipants() {
   if (!state.sessionId || !state.myToken) return;
   try {
     const data = await api(`/sessions/${state.sessionId}`, {
       headers: authHeaders(),
     });
-    const names = data.participants || [];
-    const others = names.filter((n) => n !== "Director" && n !== "creator");
-    if (others.length > 0) {
-      workerName.textContent = others[0];
-      workerStatus.textContent = `connected (${names.length} participants)`;
+    const participants = data.participants || [];
+    // Handle both old format (string[]) and new format (object[])
+    if (participants.length > 0 && typeof participants[0] === "object") {
+      state.participants = participants;
+      const names = participants.map((p) => p.name);
+      const others = names.filter((n) => n !== "Director" && n !== "creator");
+      if (others.length > 0) {
+        workerName.textContent = others[0];
+        workerStatus.textContent = `connected (${names.length} participants)`;
+      }
+    } else {
+      // Legacy string[] format
+      state.participants = participants.map((n, i) => ({
+        name: n,
+        role: i === 0 ? "creator" : "participant",
+      }));
+      const others = participants.filter((n) => n !== "Director" && n !== "creator");
+      if (others.length > 0) {
+        workerName.textContent = others[0];
+        workerStatus.textContent = `connected (${participants.length} participants)`;
+      }
     }
   } catch { /* ignore */ }
+}
+
+function getParticipantBadgeClass(senderName) {
+  if (!senderName) return "badge-creator";
+  const lower = senderName.toLowerCase();
+  if (lower === "creator" || lower === "director") return "badge-creator";
+  const idx = state.participants.findIndex(
+    (p) => p.name && p.name.toLowerCase() === lower
+  );
+  if (idx <= 0) return "badge-participant-1";
+  const colorIdx = Math.min(idx, PARTICIPANT_COLORS.length - 1);
+  return `badge-${PARTICIPANT_COLORS[colorIdx]}`;
+}
+
+function getRoleIcon(senderName) {
+  if (!senderName) return "\u{1F464}";
+  const lower = senderName.toLowerCase();
+  if (lower === "creator" || lower === "director") return "\u{1F464}";
+  const agentKeywords = ["claude", "agent", "bot", "worker", "auditor", "analyst", "scout", "strategist", "architect", "reviewer", "mba-", "mcp-", "opus", "sonnet", "haiku"];
+  if (agentKeywords.some(k => lower.includes(k))) return "\u{1F916}";
+  return "\u{1F464}";
+}
+
+function inferSenderTag(name) {
+  if (!name) return "human";
+  const lower = name.toLowerCase();
+  const agentKeywords = ["claude", "agent", "bot", "worker", "auditor", "analyst", "scout", "strategist", "architect", "reviewer", "mba-", "mcp-", "opus", "sonnet", "haiku"];
+  if (agentKeywords.some(k => lower.includes(k))) return "agent";
+  return "human";
 }
 
 // --- SSE Stream ---
@@ -374,10 +425,12 @@ function renderDirectorMessage(msg) {
 
   const isMine = msg.sender_name === "Director" || msg.sender_name === "creator";
   const senderTag = inferSenderTag(msg.sender_name);
+  const badgeClass = getParticipantBadgeClass(msg.sender_name);
+  const roleIcon = getRoleIcon(msg.sender_name);
   const div = document.createElement("div");
   div.className = `message ${isMine ? "sent" : "received"}`;
   div.innerHTML = `
-    <div class="sender">${escapeHtml(msg.sender_name)} <span class="sender-tag ${senderTag}">${senderTag}</span></div>
+    <div class="sender">${escapeHtml(msg.sender_name)} <span class="participant-badge ${badgeClass}"><span class="role-icon">${roleIcon}</span>${senderTag}</span></div>
     <div class="content">${escapeHtml(msg.content)}</div>
     <div class="meta">
       <span class="message-type ${msg.type || "context"}">${msg.type || "message"}</span>
@@ -419,14 +472,6 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#x27;");
-}
-
-function inferSenderTag(name) {
-  if (!name) return "human";
-  const lower = name.toLowerCase();
-  const agentKeywords = ["claude", "agent", "bot", "worker", "auditor", "analyst", "scout", "strategist", "architect", "reviewer", "mba-", "mcp-", "opus", "sonnet", "haiku"];
-  if (agentKeywords.some(k => lower.includes(k))) return "agent";
-  return "human";
 }
 
 function formatTime(ts) {
@@ -576,6 +621,37 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// --- Export Session (Sprint 2: dashboard) ---
+async function exportSession(format = "json") {
+  if (!state.sessionId || !state.myToken) {
+    showToast("No active session to export");
+    return;
+  }
+  try {
+    const url = `${API}/relay/${state.sessionId}/export?format=${format}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${state.myToken}` },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const ext = format === "md" ? "md" : "json";
+    const filename = `session-${state.sessionId.slice(0, 8)}.${ext}`;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    showToast(`Exported as ${ext.toUpperCase()}`);
+  } catch (err) {
+    showToast(`Export failed: ${err.message}`);
+  }
+}
+
 // ========== EVENT LISTENERS ==========
 
 $("#btn-new-session").addEventListener("click", createSession);
@@ -585,6 +661,17 @@ $("#btn-copy-invite").addEventListener("click", () => {
   copyText(state.inviteToken || "");
   showToast("Invite token copied!");
 });
+
+// Export button -- click for JSON, right-click for Markdown
+const btnExport = $("#btn-export");
+if (btnExport) {
+  btnExport.addEventListener("click", () => exportSession("json"));
+  btnExport.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    exportSession("md");
+  });
+  btnExport.title = "Click: export JSON | Right-click: export Markdown";
+}
 $("#btn-send").addEventListener("click", sendDirectorMessage);
 $("#btn-simulate").addEventListener("click", runSimulation);
 $("#btn-clear").addEventListener("click", clearPeer);

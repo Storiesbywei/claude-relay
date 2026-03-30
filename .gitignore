@@ -4,6 +4,7 @@ dist/
 *.log
 .DS_Store
 data/
+.claude/worktrees/
 
 # Private research docs
 MARKET-RESEARCH.md

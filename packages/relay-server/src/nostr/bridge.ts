@@ -19,7 +19,7 @@ import {
   eventToMessage,
 } from "@claude-relay/shared";
 import { eventStore } from "./event-store.js";
-import { getSessionByPubkey, addMessage, getSession, hasMessageWithEventId } from "../store/memory.js";
+import { getSessionByPubkey, addMessage, getSession, hasMessageWithEventId } from "../store/sqlite.js";
 import { publishToExternal } from "./relay-pool.js";
 
 // Lazy import to avoid circular dependency — set by handler.ts init

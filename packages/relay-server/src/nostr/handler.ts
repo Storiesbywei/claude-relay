@@ -32,6 +32,9 @@ interface ConnectionState {
   // Rate limiting
   msgCount: number;
   msgWindowStart: number; // timestamp ms
+  // Ping/pong heartbeat (Sprint 2: detect dead connections)
+  pingInterval: ReturnType<typeof setInterval> | null;
+  lastPongAt: number;
 }
 
 // All active WebSocket connections and their state
@@ -94,9 +97,26 @@ export function handleOpen(ws: ServerWebSocket<any>): void {
     subscriptions: new SubscriptionManager(),
     msgCount: 0,
     msgWindowStart: Date.now(),
+    pingInterval: null,
+    lastPongAt: Date.now(),
   };
   connections.set(ws, state);
   allSubscribers.add({ ws, state });
+
+  // Sprint 2: Ping/pong heartbeat -- detect dead connections
+  state.pingInterval = setInterval(() => {
+    if (Date.now() - state.lastPongAt > 40_000) {
+      // No pong in 40s (missed at least one ping cycle) -- close dead connection
+      ws.close();
+      return;
+    }
+    try {
+      ws.ping();
+    } catch {
+      // Connection already dead
+      ws.close();
+    }
+  }, 30_000);
 
   // Send NIP-42 AUTH challenge
   send(ws, ["AUTH", challenge]);
@@ -106,6 +126,11 @@ export function handleOpen(ws: ServerWebSocket<any>): void {
 export function handleClose(ws: ServerWebSocket<any>): void {
   const state = connections.get(ws);
   if (state) {
+    // Sprint 2: Clean up ping interval
+    if (state.pingInterval) {
+      clearInterval(state.pingInterval);
+      state.pingInterval = null;
+    }
     state.subscriptions.clear();
   }
   connections.delete(ws);
@@ -115,6 +140,14 @@ export function handleClose(ws: ServerWebSocket<any>): void {
       allSubscribers.delete(entry);
       break;
     }
+  }
+}
+
+/** Called when a pong is received from a WebSocket client (Sprint 2: heartbeat) */
+export function handlePong(ws: ServerWebSocket<any>): void {
+  const state = connections.get(ws);
+  if (state) {
+    state.lastPongAt = Date.now();
   }
 }
 

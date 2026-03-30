@@ -755,6 +755,62 @@ body {
 .sender-tag.agent { background: rgba(124, 106, 239, 0.25); color: var(--accent-a); }
 .sender-tag.human { background: rgba(46, 160, 67, 0.25); color: var(--green); }
 
+/* --- Participant Badges (Sprint 2: 4-color identity) --- */
+.participant-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+.participant-badge .role-icon {
+  font-size: 10px;
+}
+.badge-creator {
+  background: rgba(91, 163, 245, 0.2);
+  color: var(--accent-director);
+}
+.badge-participant-1 {
+  background: rgba(52, 208, 88, 0.2);
+  color: var(--green);
+}
+.badge-participant-2 {
+  background: rgba(245, 158, 66, 0.2);
+  color: var(--accent-b);
+}
+.badge-participant-3 {
+  background: rgba(139, 124, 246, 0.2);
+  color: var(--accent-a);
+}
+
+/* --- Export Button (Sprint 2) --- */
+.btn-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-export:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+.btn-export-icon {
+  font-size: 12px;
+}
+
 /* --- Typing Indicator --- */
 .typing-indicator {
   padding: 8px 18px;

@@ -72,10 +72,22 @@ sessionRoutes.get("/:id", (c) => {
     return c.json({ error: "Session not found" }, 404);
   }
 
+  // Sprint 2: Return participant objects with { name, role, joined_at } for identity badges
+  const participantDetails = [
+    { name: "creator", role: "creator", joined_at: session.createdAt.toISOString() },
+  ];
+  for (const [, info] of session.participants) {
+    participantDetails.push({
+      name: info.name || "anonymous",
+      role: "participant",
+      joined_at: info.joinedAt.toISOString(),
+    });
+  }
+
   return c.json({
     id: session.id,
     name: session.name,
-    participants: getParticipantNames(session),
+    participants: participantDetails,
     message_count: session.messages.length,
     created_at: session.createdAt.toISOString(),
     expires_at: session.expiresAt.toISOString(),

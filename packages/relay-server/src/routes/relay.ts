@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { RelayMessagePayloadSchema, scanContent } from "@claude-relay/shared";
 import type { StoredMessage } from "@claude-relay/shared";
-import { addMessage, getMessages, getSession, subscribe } from "../store/sqlite.js";
+import { addMessage, getMessages, getSession, getParticipantNames, subscribe } from "../store/sqlite.js";
 import { streamSSE } from "hono/streaming";
 import { bridgeMessageToNostr } from "../nostr/bridge.js";
 
@@ -104,6 +104,22 @@ relayRoutes.get("/:session_id/stream", (c) => {
   }
 
   return streamSSE(c, async (stream) => {
+    // Sprint 2: SSE catch-up -- replay missed messages on reconnect
+    const lastEventId = c.req.header("Last-Event-ID");
+    if (lastEventId) {
+      const since = parseInt(lastEventId, 10);
+      if (!isNaN(since)) {
+        const catchup = getMessages(sessionId, since, 50);
+        for (const msg of catchup.messages) {
+          await stream.writeSSE({
+            event: "message",
+            data: JSON.stringify(msg),
+            id: String(msg.sequence),
+          });
+        }
+      }
+    }
+
     // Send heartbeat every 15s to keep connection alive
     const heartbeat = setInterval(() => {
       stream.writeSSE({ event: "ping", data: "" }).catch(() => {});
@@ -128,6 +144,74 @@ relayRoutes.get("/:session_id/stream", (c) => {
       clearInterval(heartbeat);
       unsubscribe();
     }
+  });
+});
+
+// GET /relay/:session_id/export -- export session as JSON or Markdown (Sprint 2: dashboard)
+relayRoutes.get("/:session_id/export", (c) => {
+  const sessionId = c.req.param("session_id");
+  const session = getSession(sessionId);
+  if (!session) {
+    return c.json({ error: "Session not found" }, 404);
+  }
+
+  const format = (c.req.query("format") || "json").toLowerCase();
+
+  // Fetch all messages (use large limit to get everything)
+  const allMessages: StoredMessage[] = [];
+  let cursor = 0;
+  while (true) {
+    const batch = getMessages(sessionId, cursor, 200);
+    allMessages.push(...batch.messages);
+    cursor = batch.cursor;
+    if (!batch.has_more) break;
+  }
+
+  const participants = getParticipantNames(session);
+
+  if (format === "md" || format === "markdown") {
+    // Generate Markdown transcript
+    let md = `# Session: ${session.name}\n\n`;
+    md += `**Created:** ${session.createdAt.toISOString()}  \n`;
+    md += `**Participants:** ${participants.join(", ")}  \n`;
+    md += `**Messages:** ${allMessages.length}\n\n---\n`;
+
+    for (const msg of allMessages) {
+      md += `\n## [${msg.sequence}] ${msg.type} -- ${msg.title || "(untitled)"}\n`;
+      md += `**From:** ${msg.sender_name || "unknown"} | **At:** ${msg.sent_at}\n\n`;
+      md += `${msg.content}\n\n---\n`;
+    }
+
+    const filename = `session-${sessionId}.md`;
+    return new Response(md, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+      },
+    });
+  }
+
+  // Default: JSON format
+  return c.json({
+    session: {
+      id: session.id,
+      name: session.name,
+      created_at: session.createdAt.toISOString(),
+      expires_at: session.expiresAt.toISOString(),
+      participants,
+    },
+    messages: allMessages.map((msg) => ({
+      message_id: msg.message_id,
+      sequence: msg.sequence,
+      type: msg.type,
+      title: msg.title,
+      content: msg.content,
+      sender_name: msg.sender_name,
+      sent_at: msg.sent_at,
+    })),
+    exported_at: new Date().toISOString(),
+    message_count: allMessages.length,
   });
 });
 

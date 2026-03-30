@@ -12,9 +12,10 @@ import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { sweepExpiredSessions } from "./store/sqlite.js";
 import { RELAY_PORT, LIMITS, RELAY_INFO } from "@claude-relay/shared";
-import { handleOpen, handleClose, handleMessage, getNostrStats, setCanonicalRelayUrl, onNostrRelayEvent } from "./nostr/handler.js";
+import { handleOpen, handleClose, handleMessage, handlePong, getNostrStats, setCanonicalRelayUrl, onNostrRelayEvent } from "./nostr/handler.js";
 import { bridgeNostrToHttp, getServerKeypair } from "./nostr/bridge.js";
-import { disconnectAll as disconnectRelayPool, setPoolKeypair } from "./nostr/relay-pool.js";
+import { disconnectAll as disconnectRelayPool, setPoolKeypair, shutdownPool } from "./nostr/relay-pool.js";
+import { nostrRelayRoutes } from "./routes/nostr-relays.js";
 
 const app = new Hono();
 
@@ -68,6 +69,9 @@ app.use("/relay/:session_id", authMiddleware);
 app.use("/relay/:session_id", rateLimitMiddleware);
 app.route("/relay", relayRoutes);
 
+// Nostr relay pool management (auth handled in route handlers)
+app.route("/nostr", nostrRelayRoutes);
+
 // Dashboard (static files)
 const publicDir = resolve(__dirname, "../public");
 app.use("/*", async (c, next) => {
@@ -97,6 +101,7 @@ const sweepInterval = setInterval(() => {
 const shutdown = () => {
   clearInterval(sweepInterval);
   disconnectRelayPool();
+  shutdownPool();
   console.log("\n[relay] Shutting down...");
   process.exit(0);
 };
@@ -147,6 +152,9 @@ export default {
     },
     message(ws: any, data: string | Buffer) {
       handleMessage(ws, data);
+    },
+    pong(ws: any) {
+      handlePong(ws);
     },
   },
 };
