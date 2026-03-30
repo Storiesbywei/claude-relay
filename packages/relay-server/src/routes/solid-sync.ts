@@ -6,18 +6,15 @@
  */
 
 import { Hono } from "hono";
-import { getSession } from "../store/sqlite.js";
 import {
-  setSolidConfig,
+  getSession,
   getSolidConfig,
-  hasSolidConfig,
-  getSyncedSequence,
-  getSessionQueueDepth,
-  getLastError,
-  enqueue,
-} from "../solid/solid-store.js";
+  setSolidConfig,
+  getPodSyncedSequence,
+} from "../store/sqlite.js";
+import { enqueue, getQueueDepth } from "../solid/sync-queue.js";
 import { validatePodAccess } from "../solid/pod-writer.js";
-import type { SolidExportConfig } from "../solid/types.js";
+import type { SolidTokenConfig } from "../solid/types.js";
 
 export const solidSyncRoutes = new Hono();
 
@@ -70,7 +67,7 @@ solidSyncRoutes.post("/:session_id/enable", async (c) => {
     return c.json({ error: "podUrl must be a valid URL" }, 400);
   }
 
-  const config: SolidExportConfig = {
+  const config: SolidTokenConfig = {
     podUrl: body.podUrl,
     webId: body.webId,
     accessToken: body.accessToken,
@@ -79,19 +76,14 @@ solidSyncRoutes.post("/:session_id/enable", async (c) => {
   };
 
   // Validate Pod access before storing
-  const validation = await validatePodAccess(config);
-  if (!validation.valid) {
-    return c.json(
-      {
-        error: "Pod access validation failed",
-        details: validation.error,
-      },
-      422
-    );
+  try {
+    await validatePodAccess(config as any);
+  } catch (err: any) {
+    return c.json({ error: `Pod access check failed: ${err.message}` }, 400);
   }
 
   // Store the config
-  setSolidConfig(sessionId, config);
+  setSolidConfig(sessionId, config as any);
 
   // Trigger catch-up: enqueue any existing messages
   const currentSeq = session.sequenceCounter;
@@ -141,9 +133,8 @@ solidSyncRoutes.get("/:session_id/status", (c) => {
   return c.json({
     enabled,
     podUrl: config?.podUrl ?? null,
-    syncedSequence: getSyncedSequence(sessionId),
+    syncedSequence: getPodSyncedSequence(sessionId),
     currentSequence: session.sequenceCounter,
-    queueDepth: getSessionQueueDepth(sessionId),
-    lastError: getLastError(sessionId),
+    queueDepth: getQueueDepth(sessionId),
   });
 });

@@ -372,6 +372,13 @@ const stmts = {
     WHERE session_id = $session_id AND solid_resource_url = $url
     LIMIT 1
   `),
+
+  // Single message by sequence (O(1) indexed lookup)
+  getMessageBySequence: db.prepare(`
+    SELECT * FROM messages
+    WHERE session_id = $session_id AND sequence = $sequence
+    LIMIT 1
+  `),
 };
 
 // ---------------------------------------------------------------------------
@@ -794,4 +801,11 @@ export function getSolidBindingsForSession(sessionId: string): { webId: string; 
 
 export function hasMessageWithSolidUrl(sessionId: string, resourceUrl: string): boolean {
   return !!stmts.hasSolidUrl.get({ $session_id: sessionId, $url: resourceUrl });
+}
+
+/** Get a single message by session ID and sequence number (O(1) indexed lookup) */
+export function getMessageBySequence(sessionId: string, sequence: number): StoredMessage | undefined {
+  const row = stmts.getMessageBySequence.get({ $session_id: sessionId, $sequence: sequence }) as MessageRow | null;
+  if (!row) return undefined;
+  return rowToMessage(row);
 }

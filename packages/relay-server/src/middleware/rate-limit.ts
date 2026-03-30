@@ -29,6 +29,10 @@ const WINDOW_MS = 60_000;
 // Composite key  `${token}:${origin}` → timestamps[]
 const windows = new Map<string, number[]>();
 
+// Global per-token bucket: `${token}` → timestamps[]
+// Separate map for O(1) global count instead of iterating all windows
+const globalWindows = new Map<string, number[]>();
+
 // Periodic cleanup: remove entries with no recent timestamps to prevent memory leak
 setInterval(() => {
   const now = Date.now();
@@ -36,6 +40,12 @@ setInterval(() => {
     const active = timestamps.filter((t) => now - t < 60_000);
     if (active.length === 0) {
       windows.delete(key);
+    }
+  }
+  for (const [key, timestamps] of globalWindows.entries()) {
+    const active = timestamps.filter((t) => now - t < 60_000);
+    if (active.length === 0) {
+      globalWindows.delete(key);
     }
   }
 }, 300_000); // Every 5 minutes
@@ -56,17 +66,13 @@ function pruneWindow(key: string, now: number): number[] {
 }
 
 /**
- * Count total requests across all origins for a given token within the
- * current window.
+ * Prune the global window for a token and return the active count. O(1) lookup.
  */
-function globalCount(token: string, now: number): number {
-  let total = 0;
-  for (const [key, timestamps] of windows) {
-    if (key === token || key.startsWith(`${token}:`)) {
-      total += timestamps.filter((t) => now - t < WINDOW_MS).length;
-    }
-  }
-  return total;
+function pruneGlobalWindow(token: string, now: number): number[] {
+  let ts = globalWindows.get(token) || [];
+  ts = ts.filter((t) => now - t < WINDOW_MS);
+  globalWindows.set(token, ts);
+  return ts;
 }
 
 // ---- Hono middleware (HTTP origin) ----
@@ -94,8 +100,9 @@ export async function rateLimitMiddleware(c: Context, next: Next) {
     );
   }
 
-  // 2. Global per-token check
-  if (globalCount(baseKey, now) >= GLOBAL_LIMIT) {
+  // 2. Global per-token check (O(1) lookup)
+  const globalTs = pruneGlobalWindow(baseKey, now);
+  if (globalTs.length >= GLOBAL_LIMIT) {
     return c.json(
       {
         error: "Global rate limit exceeded",
@@ -107,6 +114,8 @@ export async function rateLimitMiddleware(c: Context, next: Next) {
 
   timestamps.push(now);
   windows.set(compositeKey, timestamps);
+  globalTs.push(now);
+  globalWindows.set(baseKey, globalTs);
   await next();
 }
 
@@ -131,13 +140,16 @@ export function checkBridgeRateLimit(
     return false;
   }
 
-  // Global per-token check
-  if (globalCount(token, now) >= GLOBAL_LIMIT) {
+  // Global per-token check (O(1) lookup)
+  const globalTs = pruneGlobalWindow(token, now);
+  if (globalTs.length >= GLOBAL_LIMIT) {
     return false;
   }
 
   timestamps.push(now);
   windows.set(compositeKey, timestamps);
+  globalTs.push(now);
+  globalWindows.set(token, globalTs);
   return true;
 }
 

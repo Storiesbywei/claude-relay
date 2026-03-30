@@ -13,20 +13,22 @@
 
 import type { SyncEngineStats } from "./types.js";
 import {
+  enqueue,
   dequeueBatch,
   markCompleted,
   markFailed,
-  requeueRetriable,
-  pruneQueue,
-  getSolidConfig,
-  getAllSolidSessionIds,
-  getSyncedSequence,
-  updateSyncedSequence,
+  requeueStale,
   getQueueDepth,
-  enqueue,
-} from "./solid-store.js";
+} from "./sync-queue.js";
 import { writeMessageToPod } from "./pod-writer.js";
-import { getSession } from "../store/sqlite.js";
+import {
+  getSession,
+  getSolidConfig,
+  getSolidEnabledSessions,
+  getPodSyncedSequence,
+  setPodSyncedSequence,
+  getMessageBySequence,
+} from "../store/sqlite.js";
 
 const BATCH_SIZE = 10;
 const POLL_INTERVAL_MS = 2_000;
@@ -65,13 +67,12 @@ export class SolidSyncEngine {
 
   /** Process one batch of pending entries */
   private async processBatch(): Promise<void> {
-    // Dequeue up to BATCH_SIZE entries that are ready (respecting backoff)
+    // Re-queue entries stuck in_progress for >60s (crash recovery)
+    requeueStale(60_000);
+
+    // Dequeue up to BATCH_SIZE entries (marks them in_progress atomically)
     const entries = dequeueBatch(BATCH_SIZE);
-    if (entries.length === 0) {
-      // Periodic maintenance: prune completed/permanently-failed entries
-      pruneQueue(MAX_RETRIES);
-      return;
-    }
+    if (entries.length === 0) return;
 
     // Group entries by sessionId for efficient config lookup
     const grouped = new Map<string, typeof entries>();
@@ -83,56 +84,37 @@ export class SolidSyncEngine {
 
     for (const [sessionId, sessionEntries] of grouped) {
       const config = getSolidConfig(sessionId);
-      const session = getSession(sessionId);
 
       if (!config) {
-        // No Solid config for this session — mark all entries as failed
         for (const entry of sessionEntries) {
           markFailed(entry.id, "No Solid export config for session");
         }
         continue;
       }
 
-      if (!session) {
-        // Session no longer exists — mark as failed
-        for (const entry of sessionEntries) {
-          markFailed(entry.id, "Session not found");
-        }
-        continue;
-      }
-
-      // Process each entry: find the message and write to Pod
+      // Process each entry: look up message by sequence (O(1) indexed query)
       for (const entry of sessionEntries) {
-        const message = session.messages.find(
-          (m) => m.sequence === entry.sequence
-        );
+        const message = getMessageBySequence(sessionId, entry.messageSequence);
 
         if (!message) {
           markFailed(
             entry.id,
-            `Message with sequence ${entry.sequence} not found in session`
+            `Message with sequence ${entry.messageSequence} not found in session`
           );
           continue;
         }
 
-        const result = await writeMessageToPod(message, sessionId, config);
-
-        if (result.success) {
+        try {
+          await writeMessageToPod(sessionId, message, config);
           markCompleted(entry.id);
-          updateSyncedSequence(sessionId, entry.sequence);
-        } else {
-          markFailed(entry.id, result.error ?? "Unknown write error");
+          setPodSyncedSequence(sessionId, entry.messageSequence);
+        } catch (err: any) {
+          markFailed(entry.id, err.message ?? "Unknown write error");
         }
       }
     }
 
     this.lastProcessedAt = new Date().toISOString();
-
-    // Re-queue retriable failures (status back to 'pending', backoff on dequeue)
-    requeueRetriable(MAX_RETRIES);
-
-    // Prune completed entries to keep queue bounded
-    pruneQueue(MAX_RETRIES);
   }
 
   /**
@@ -141,19 +123,17 @@ export class SolidSyncEngine {
    * was down while messages were being added.
    */
   catchUp(): void {
-    const sessionIds = getAllSolidSessionIds();
+    const enabledSessions = getSolidEnabledSessions();
     let totalEnqueued = 0;
 
-    for (const sessionId of sessionIds) {
+    for (const { sessionId, lastSynced } of enabledSessions) {
       const session = getSession(sessionId);
       if (!session) continue;
 
-      const syncedSeq = getSyncedSequence(sessionId);
       const currentSeq = session.sequenceCounter;
 
-      if (syncedSeq < currentSeq) {
-        // Enqueue all missing sequence numbers
-        for (let seq = syncedSeq + 1; seq <= currentSeq; seq++) {
+      if (lastSynced < currentSeq) {
+        for (let seq = lastSynced + 1; seq <= currentSeq; seq++) {
           enqueue(sessionId, seq);
           totalEnqueued++;
         }
@@ -162,7 +142,7 @@ export class SolidSyncEngine {
 
     if (totalEnqueued > 0) {
       console.log(
-        `[solid-sync] Catch-up: enqueued ${totalEnqueued} message(s) across ${sessionIds.length} session(s)`
+        `[solid-sync] Catch-up: enqueued ${totalEnqueued} message(s) across ${enabledSessions.length} session(s)`
       );
     }
   }

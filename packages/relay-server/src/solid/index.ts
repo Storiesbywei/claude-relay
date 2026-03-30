@@ -3,5 +3,5 @@
  */
 
 export { syncEngine } from "./sync-engine.js";
-export { hasSolidConfig, enqueue, getEnabledSessionCount, getQueueDepth } from "./solid-store.js";
-export type { SolidExportConfig, SyncEngineStats, SolidSyncStatus } from "./types.js";
+export { enqueue, getQueueDepth } from "./sync-queue.js";
+export type { SyncEngineStats, SolidSyncStatus } from "./types.js";

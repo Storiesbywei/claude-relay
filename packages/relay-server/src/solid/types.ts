@@ -5,8 +5,8 @@
  * structures used by the sync engine and API routes.
  */
 
-/** Configuration for syncing a session to a Solid Pod */
-export interface SolidExportConfig {
+/** Token-based configuration for syncing a session to a Solid Pod */
+export interface SolidTokenConfig {
   /** URL of the target Solid Pod container (e.g. https://pod.example.org/relay/) */
   podUrl: string;
   /** WebID of the Pod owner */

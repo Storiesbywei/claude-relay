@@ -17,8 +17,7 @@ import {
   generateKeypair,
   signEvent,
   eventToMessage,
-  scanContent,
-  logScanEvent,
+  scanAndGateMessage,
 } from "@claude-relay/shared";
 import { eventStore } from "./event-store.js";
 import { getSessionByPubkey, addMessage, getSession, hasMessageWithEventId } from "../store/sqlite.js";
@@ -213,19 +212,8 @@ export function bridgeNostrToHttp(event: NostrEvent): boolean {
   msg.origin = "nostr";
 
   // Security: scan bridged content before injecting into HTTP session
-  const scan = scanContent(msg.content);
-  if (scan.hasSensitive) {
-    logScanEvent("nostr", "blocked", `event=${event.id.slice(0, 8)} — ${scan.warnings.join(", ")}`);
-    return false; // Don't inject
-  }
-  if (msg.title) {
-    const titleScan = scanContent(msg.title);
-    if (titleScan.hasSensitive) {
-      logScanEvent("nostr", "blocked", `event=${event.id.slice(0, 8)} — sensitive title`);
-      return false;
-    }
-  }
-  logScanEvent("nostr", "allowed", `event=${event.id.slice(0, 8)}`);
+  const gate = scanAndGateMessage(msg.content, msg.title, "nostr");
+  if (!gate.allowed) return false;
 
   try {
     addMessage(targetSessionId, msg);
