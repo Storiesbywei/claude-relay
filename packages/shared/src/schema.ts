@@ -36,6 +36,10 @@ export const RelayMessagePayloadSchema = z.object({
     .optional()
     .describe("Source file references (relative paths only)"),
   context: MessageContextSchema.optional(),
+  encrypted: z
+    .boolean()
+    .optional()
+    .describe("True if content is E2E encrypted (Scan-then-Seal). Server skips content scanning for encrypted payloads."),
 });
 
 // Full message as stored/returned by the relay server
@@ -44,6 +48,7 @@ export const RelayMessageSchema = RelayMessagePayloadSchema.extend({
   sequence: z.number().int().nonnegative(),
   sender_name: z.string().optional(),
   sent_at: z.string().datetime(),
+  encrypted: z.boolean().optional(),
 });
 
 // --- Session Types ---

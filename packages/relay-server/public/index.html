@@ -109,6 +109,11 @@
       </div>
 
       <div class="mast-right">
+        <div class="encryption-pill" id="encryption-pill" role="status" aria-label="Encryption status" style="display:none" title="E2E encrypted">
+          <span class="lock-icon" aria-hidden="true">&#x1F512;</span>
+          <span class="encryption-label" id="encryption-label">Encrypted</span>
+          <span class="key-fingerprint" id="key-fingerprint"></span>
+        </div>
         <div class="connection-pill" id="connection-pill" role="status" aria-label="Connection status">
           <span class="dot" aria-hidden="true"></span>
           <span id="connection-label">Connected</span>
@@ -449,6 +454,7 @@
   <!-- Screen reader live region -->
   <div class="sr-live-region" id="sr-live" aria-live="polite" aria-atomic="true"></div>
 
+  <script src="/crypto.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

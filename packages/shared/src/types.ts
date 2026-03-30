@@ -38,6 +38,8 @@ export interface StoredMessage {
   nostr_event_id?: string;
   // Solid Pod resource URL this message was created from (for dedup)
   solid_resource_url?: string;
+  /** True if content is an encrypted payload (Scan-then-Seal E2E encryption) */
+  encrypted?: boolean;
 }
 
 export interface CreateSessionResponse {
@@ -45,6 +47,10 @@ export interface CreateSessionResponse {
   creator_token: string;
   invite_token: string;
   expires_at: string;
+  /** Whether client-side E2E encryption is enabled for this session */
+  encryption_enabled?: boolean;
+  /** First 8 hex chars of the session key hash, for out-of-band verification */
+  key_fingerprint?: string;
 }
 
 export interface JoinSessionResponse {
@@ -103,4 +109,7 @@ export interface ActiveSession {
     npub: string; // bech32 public key
     nsec: string; // bech32 secret key (stored locally only)
   };
+  // E2E encryption secret (URL-safe base64). Used by MCP tools to
+  // derive the session key via HKDF. Stored locally only.
+  encryption_secret?: string;
 }

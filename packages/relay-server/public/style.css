@@ -493,6 +493,62 @@ a:hover { text-decoration: underline; }
   animation: none;
 }
 
+/* ===== Encryption Indicator ===== */
+
+.encryption-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px 4px 7px;
+  background: rgba(139,92,246,0.10);
+  border: 1px solid rgba(139,92,246,0.25);
+  border-radius: 20px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--purple);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.encryption-pill .lock-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.encryption-pill .encryption-label {
+  /* Matches connection-pill text style */
+}
+
+.encryption-pill .key-fingerprint {
+  color: var(--text-dim);
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/* Encrypted message indicator in folio entries */
+.ec-encrypted-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--purple);
+  opacity: 0.7;
+  margin-left: 6px;
+}
+
+.ec-encrypted-badge .lock-sm {
+  font-size: 10px;
+}
+
+/* Decryption failure styling */
+.ec-decrypt-error {
+  color: #ff6b6b;
+  font-style: italic;
+  font-size: 12px;
+}
+
 .folio-counter {
   font-family: var(--serif);
   font-size: 14px;

@@ -84,6 +84,9 @@ function cacheDom() {
   dom.idNpub = document.getElementById('id-npub');
   dom.srLive = document.getElementById('sr-live');
   dom.ariaAnnouncer = document.getElementById('aria-announcer');
+  dom.encryptionPill = document.getElementById('encryption-pill');
+  dom.encryptionLabel = document.getElementById('encryption-label');
+  dom.keyFingerprint = document.getElementById('key-fingerprint');
 }
 
 // --------------- Helpers ---------------
@@ -194,6 +197,10 @@ async function createSession() {
 
   try {
     const data = await api('POST', '/sessions', { name: name, ttl_minutes: ttl });
+
+    // Generate E2E encryption secret and derive session key
+    var secretB64 = await relayCrypto.initForCreator(data.session_id);
+
     startSession({
       id: data.session_id,
       token: data.creator_token,
@@ -201,6 +208,7 @@ async function createSession() {
       name: name,
       role: 'creator',
       expires_at: data.expires_at,
+      _cryptoSecret: secretB64, // Passed to startSession for URL fragment
     });
   } catch (e) {
     errEl.textContent = 'Failed: ' + e.message;
@@ -252,14 +260,29 @@ function startSession(sess) {
   state.cursor = 0;
   state.folioCount = 0;
   state.userScrolled = false;
-  localStorage.setItem('relay_session', JSON.stringify(sess));
 
-  // Inject URL params for sharing
+  // Persist session (WITHOUT the crypto secret — that stays in memory only)
+  var sessToStore = {
+    id: sess.id, token: sess.token, invite: sess.invite,
+    name: sess.name, role: sess.role, expires_at: sess.expires_at,
+  };
+  localStorage.setItem('relay_session', JSON.stringify(sessToStore));
+
+  // Inject URL params for sharing + encryption key in fragment
+  // The URL fragment (#key=...) is NEVER sent to the server by browsers.
   const url = new URL(location.href);
   url.searchParams.set('sid', sess.id);
   url.searchParams.set('token', sess.token);
   url.searchParams.set('name', sess.name);
+  if (sess._cryptoSecret) {
+    url.hash = 'key=' + sess._cryptoSecret;
+  } else if (relayCrypto.enabled) {
+    // Preserve existing hash if crypto already initialized
+  }
   history.replaceState(null, '', url.toString());
+
+  // Update encryption UI indicator
+  updateEncryptionUI();
 
   // Switch screens
   dom.setup.style.display = 'none';
@@ -321,7 +344,11 @@ function endSession() {
   _seenMessageIds.clear();
   localStorage.removeItem('relay_session');
 
-  // Clear URL params
+  // Clear encryption state (key lives in memory only)
+  relayCrypto.clear();
+  updateEncryptionUI();
+
+  // Clear URL params AND fragment (which contains the encryption key)
   history.replaceState(null, '', location.pathname);
 
   dom.main.style.display = 'none';
@@ -465,8 +492,9 @@ async function poll() {
         var emptyState = document.getElementById('empty-state');
         if (emptyState) emptyState.remove();
 
+        // Decrypt messages if E2E encryption is active, then render
         for (var j = 0; j < newMessages.length; j++) {
-          renderMessage(newMessages[j]);
+          await renderMessageWithDecrypt(newMessages[j]);
           announceMessage(newMessages[j]);
         }
         updateCount();
@@ -503,6 +531,53 @@ async function refreshStatus() {
       list.appendChild(li);
     }
   } catch (e) { /* ignore */ }
+}
+
+// --------------- Encryption UI ---------------
+
+function updateEncryptionUI() {
+  if (!dom.encryptionPill) return;
+  if (relayCrypto.enabled) {
+    dom.encryptionPill.style.display = 'flex';
+    dom.encryptionLabel.textContent = 'E2E';
+    var fp = relayCrypto.getFingerprint();
+    if (fp) {
+      dom.keyFingerprint.textContent = fp;
+      dom.encryptionPill.title = 'E2E encrypted — key fingerprint: ' + fp;
+    }
+  } else {
+    dom.encryptionPill.style.display = 'none';
+  }
+}
+
+// --------------- Message Rendering (with decryption) ---------------
+
+async function renderMessageWithDecrypt(msg) {
+  // Attempt decryption if the message is flagged as encrypted
+  if (msg.encrypted && relayCrypto.enabled) {
+    var result = await relayCrypto.unseal(msg.content, true);
+    // Create a shallow copy with decrypted content for rendering
+    var decryptedMsg = {};
+    for (var k in msg) {
+      if (msg.hasOwnProperty(k)) decryptedMsg[k] = msg[k];
+    }
+    decryptedMsg.content = result.text;
+    decryptedMsg._wasEncrypted = true;
+    decryptedMsg._decryptError = result.error;
+    renderMessage(decryptedMsg);
+  } else if (msg.encrypted && !relayCrypto.enabled) {
+    // No key available — show ciphertext indicator
+    var lockedMsg = {};
+    for (var k2 in msg) {
+      if (msg.hasOwnProperty(k2)) lockedMsg[k2] = msg[k2];
+    }
+    lockedMsg.content = '[Encrypted message — no decryption key available]';
+    lockedMsg._wasEncrypted = true;
+    lockedMsg._decryptError = 'No key';
+    renderMessage(lockedMsg);
+  } else {
+    renderMessage(msg);
+  }
 }
 
 // --------------- Message Rendering ---------------
@@ -545,6 +620,16 @@ function renderMessage(msg) {
   var hash = (msg.message_id || '').slice(0, 8);
   var originDisplay = settings.showOriginTags ? '' : 'display:none';
 
+  // Encryption badge for E2E encrypted messages
+  var encBadge = '';
+  if (msg._wasEncrypted) {
+    if (msg._decryptError) {
+      encBadge = '<span class="ec-encrypted-badge ec-decrypt-error"><span class="lock-sm">&#x1F513;</span>decrypt failed</span>';
+    } else {
+      encBadge = '<span class="ec-encrypted-badge"><span class="lock-sm">&#x1F512;</span>e2e</span>';
+    }
+  }
+
   entry.innerHTML =
     '<div class="entry-time-col">' +
       '<span class="entry-time">' + time.hhmm + '</span>' +
@@ -563,6 +648,7 @@ function renderMessage(msg) {
       '<div class="ec-body">' + renderedContent + '</div>' +
       '<div class="ec-footer">' +
         '<span class="origin-tag" style="' + originDisplay + '">' + escapeHtml(origin) + '</span>' +
+        encBadge +
         '<span class="event-hash">#' + hash + '</span>' +
       '</div>' +
     '</div>';
@@ -600,11 +686,29 @@ async function sendMessage() {
   if (!content) return;
 
   try {
-    await api('POST', '/relay/' + state.session.id, {
+    // Scan-then-Seal: encrypt if E2E encryption is active
+    var sealed = await relayCrypto.seal(content);
+
+    // Check client-side scan results (runs BEFORE encryption)
+    if (sealed.scanResult && sealed.scanResult.hasSensitive) {
+      var errDiv = document.createElement('div');
+      errDiv.style.cssText = 'color:#ff6b6b;font-family:var(--mono);font-size:11px;padding:4px 0;';
+      errDiv.textContent = 'Blocked: ' + sealed.scanResult.warnings.join('; ');
+      input.parentNode.appendChild(errDiv);
+      setTimeout(function() { errDiv.remove(); }, 5000);
+      return;
+    }
+
+    var payload = {
       type: typeInfo.api,
       title: '',
-      content: content,
-    });
+      content: sealed.content,
+    };
+    if (sealed.encrypted) {
+      payload.encrypted = true;
+    }
+
+    await api('POST', '/relay/' + state.session.id, payload);
     input.value = '';
     input.style.height = 'auto';
     // Immediate poll to show the message fast
@@ -826,24 +930,84 @@ function init() {
   // Start mesh canvas
   initMeshCanvas();
 
-  // URL param injection: ?sid=...&token=...&name=...
+  // URL param injection: ?sid=...&token=...&name=... + #key=... for encryption
   var params = new URLSearchParams(location.search);
   if (params.get('sid') && params.get('token')) {
-    startSession({
-      id: params.get('sid'),
-      token: params.get('token'),
-      invite: null,
-      name: params.get('name') || 'Session',
-      role: 'participant',
-      expires_at: null,
-    });
+    // Extract encryption key from URL fragment (never sent to server)
+    var cryptoSecret = null;
+    if (location.hash) {
+      var hashParams = location.hash.slice(1).split('&');
+      for (var hi = 0; hi < hashParams.length; hi++) {
+        var pair = hashParams[hi].split('=');
+        if (pair[0] === 'key' && pair[1]) {
+          cryptoSecret = pair[1];
+        }
+      }
+    }
+
+    // Initialize encryption if key is present
+    var sessionId = params.get('sid');
+    if (cryptoSecret) {
+      relayCrypto.initForJoiner(cryptoSecret, sessionId).then(function() {
+        startSession({
+          id: sessionId,
+          token: params.get('token'),
+          invite: null,
+          name: params.get('name') || 'Session',
+          role: 'participant',
+          expires_at: null,
+        });
+      }).catch(function(e) {
+        console.error('Encryption init failed:', e);
+        // Start session without encryption as fallback
+        startSession({
+          id: sessionId,
+          token: params.get('token'),
+          invite: null,
+          name: params.get('name') || 'Session',
+          role: 'participant',
+          expires_at: null,
+        });
+      });
+    } else {
+      startSession({
+        id: sessionId,
+        token: params.get('token'),
+        invite: null,
+        name: params.get('name') || 'Session',
+        role: 'participant',
+        expires_at: null,
+      });
+    }
   } else {
     // Restore saved session from localStorage
     var saved = localStorage.getItem('relay_session');
     if (saved) {
       try {
         var sess = JSON.parse(saved);
-        if (sess.id && sess.token) startSession(sess);
+        if (sess.id && sess.token) {
+          // Check if URL fragment has an encryption key for this restored session
+          var restoreSecret = null;
+          if (location.hash) {
+            var rhParams = location.hash.slice(1).split('&');
+            for (var ri = 0; ri < rhParams.length; ri++) {
+              var rp = rhParams[ri].split('=');
+              if (rp[0] === 'key' && rp[1]) {
+                restoreSecret = rp[1];
+              }
+            }
+          }
+
+          if (restoreSecret) {
+            relayCrypto.initForJoiner(restoreSecret, sess.id).then(function() {
+              startSession(sess);
+            }).catch(function() {
+              startSession(sess);
+            });
+          } else {
+            startSession(sess);
+          }
+        }
       } catch (e) {
         localStorage.removeItem('relay_session');
       }

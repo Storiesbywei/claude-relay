@@ -8,6 +8,11 @@ import {
 } from "../approval/queue.js";
 import { getActiveSession, getActiveSessions } from "../state.js";
 import * as client from "../client/relay-client.js";
+import {
+  deriveSessionKey,
+  encryptMessage,
+  fromUrlSafeBase64,
+} from "@claude-relay/shared";
 
 export function registerApproveTool(server: McpServer) {
   server.tool(
@@ -115,10 +120,32 @@ export function registerApproveTool(server: McpServer) {
       }
 
       try {
+        // If session has an encryption secret, encrypt the content before sending
+        let payloadToSend = { ...pending.payload };
+        let encrypted = false;
+
+        if (session.encryption_secret) {
+          try {
+            const secretBuffer = fromUrlSafeBase64(session.encryption_secret);
+            const secret = new Uint8Array(secretBuffer);
+            const key = await deriveSessionKey(secret, pending.sessionId);
+            const encPayload = await encryptMessage(payloadToSend.content, key);
+            payloadToSend = {
+              ...payloadToSend,
+              content: JSON.stringify(encPayload),
+              encrypted: true,
+            };
+            encrypted = true;
+          } catch (encErr: any) {
+            // Encryption failed — fall back to plaintext with warning
+            console.error(`[relay-mcp] Encryption failed, sending plaintext: ${encErr.message}`);
+          }
+        }
+
         const result = await client.sendMessage(
           pending.sessionId,
           session.token,
-          pending.payload
+          payloadToSend
         );
 
         removePending(pending_id);
@@ -133,6 +160,7 @@ export function registerApproveTool(server: McpServer) {
                 `Message ID: ${result.message_id}`,
                 `Sequence: ${result.sequence}`,
                 `Title: "${pending.payload.title}"`,
+                encrypted ? `Encryption: E2E encrypted` : `Encryption: plaintext`,
               ].join("\n"),
             },
           ],

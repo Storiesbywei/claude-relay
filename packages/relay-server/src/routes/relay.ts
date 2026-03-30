@@ -26,10 +26,14 @@ relayRoutes.post("/:session_id", async (c) => {
     );
   }
 
-  // Scan content for sensitive data before accepting the message
-  const gate = scanAndGateMessage(parsed.data.content, parsed.data.title, "http");
-  if (!gate.allowed) {
-    return c.json({ error: "Content blocked", warnings: gate.warnings }, 422);
+  // Skip server-side content scanning for E2E encrypted payloads.
+  // The client runs the scanner BEFORE encryption (Scan-then-Seal pattern).
+  // The server cannot read encrypted content, so scanning would be meaningless.
+  if (!parsed.data.encrypted) {
+    const gate = scanAndGateMessage(parsed.data.content, parsed.data.title, "http");
+    if (!gate.allowed) {
+      return c.json({ error: "Content blocked", warnings: gate.warnings }, 422);
+    }
   }
 
   const senderToken = c.get("token") as string;
@@ -51,6 +55,7 @@ relayRoutes.post("/:session_id", async (c) => {
     sender_name: senderName,
     sent_at: new Date().toISOString(),
     origin: "http",
+    ...(parsed.data.encrypted ? { encrypted: true } : {}),
   };
 
   try {

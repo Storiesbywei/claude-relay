@@ -3,6 +3,12 @@ import { z } from "zod";
 import * as client from "../client/relay-client.js";
 import { getActiveSession, updateCursor, saveState } from "../state.js";
 import { scanContent, scanForToolUsePatterns, recordScanEvent } from "../approval/scanner.js";
+import {
+  deriveSessionKey,
+  decryptMessage,
+  parseEncryptedContent,
+  fromUrlSafeBase64,
+} from "@claude-relay/shared";
 
 export function registerPollTool(server: McpServer) {
   server.tool(
@@ -55,14 +61,45 @@ export function registerPollTool(server: McpServer) {
           };
         }
 
+        // Derive decryption key if session has encryption secret
+        let decryptionKey: CryptoKey | null = null;
+        if (session.encryption_secret) {
+          try {
+            const secretBuffer = fromUrlSafeBase64(session.encryption_secret);
+            const secret = new Uint8Array(secretBuffer);
+            decryptionKey = await deriveSessionKey(secret, session_id);
+          } catch (keyErr: any) {
+            console.error(`[relay-mcp] Failed to derive decryption key: ${keyErr.message}`);
+          }
+        }
+
         // Scan each message for sensitive content and tool-use patterns
         const messageWarnings: string[] = [];
 
-        const formatted = result.messages
-          .map((m, idx) => {
-            let text = `## [${m.type}] ${m.title}\n`;
+        const formatted = (await Promise.all(result.messages
+          .map(async (m, idx) => {
+            // Decrypt encrypted messages
+            let content = m.content;
+            let wasEncrypted = false;
+            if ((m as any).encrypted && decryptionKey) {
+              const encPayload = parseEncryptedContent(content);
+              if (encPayload) {
+                try {
+                  content = await decryptMessage(encPayload, decryptionKey);
+                  wasEncrypted = true;
+                } catch (decErr: any) {
+                  content = `[Decryption failed: ${decErr.message}]`;
+                  wasEncrypted = true;
+                }
+              }
+            } else if ((m as any).encrypted && !decryptionKey) {
+              content = `[Encrypted message — no decryption key available]`;
+              wasEncrypted = true;
+            }
+
+            let text = `## [${m.type}] ${m.title}${wasEncrypted ? " [E2E]" : ""}\n`;
             text += `From: ${m.sender_name || "unknown"} | Seq: ${m.sequence} | ${m.sent_at}\n\n`;
-            text += m.content;
+            text += content;
             if (m.tags?.length) {
               text += `\n\nTags: ${m.tags.join(", ")}`;
             }
@@ -70,13 +107,13 @@ export function registerPollTool(server: McpServer) {
               text += `\n\nReferences:\n${m.references.map((r) => `  - ${r.file}${r.lines ? `:${r.lines}` : ""}${r.note ? ` (${r.note})` : ""}`).join("\n")}`;
             }
 
-            // Scan content for sensitive data
-            const contentScan = scanContent(m.content);
+            // Scan decrypted content for sensitive data (post-decryption scan)
+            const contentScan = scanContent(content);
             const titleScan = scanContent(m.title);
             const sensitiveWarnings = [...contentScan.warnings, ...titleScan.warnings];
 
             // Scan for tool-use / prompt injection patterns
-            const toolUseScan = scanForToolUsePatterns(m.content);
+            const toolUseScan = scanForToolUsePatterns(content);
             const titleToolScan = scanForToolUsePatterns(m.title);
             const allToolPatterns = [...toolUseScan.patterns, ...titleToolScan.patterns];
             const isToolUseSuspicious = toolUseScan.suspicious || titleToolScan.suspicious;
@@ -101,7 +138,7 @@ export function registerPollTool(server: McpServer) {
             }
 
             return text;
-          })
+          })))
           .join("\n\n---\n\n");
 
         const header: string[] = [

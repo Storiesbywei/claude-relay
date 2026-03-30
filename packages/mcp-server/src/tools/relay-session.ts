@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as client from "../client/relay-client.js";
 import type { ActiveSession } from "@claude-relay/shared";
-import { generateKeypair } from "@claude-relay/shared";
+import { generateKeypair, generateSecret, toUrlSafeBase64 } from "@claude-relay/shared";
 import {
   getActiveSessions,
   addActiveSession,
@@ -30,6 +30,10 @@ export function registerSessionTools(server: McpServer) {
         const kp = generateKeypair();
         const result = await client.createSession(name, ttl_minutes, kp.publicKey);
 
+        // Generate E2E encryption secret for this session
+        const secret = generateSecret();
+        const secretB64 = toUrlSafeBase64(secret.buffer);
+
         addActiveSession({
           session_id: result.session_id,
           token: result.creator_token,
@@ -41,6 +45,7 @@ export function registerSessionTools(server: McpServer) {
             npub: kp.npub,
             nsec: kp.nsec,
           },
+          encryption_secret: secretB64,
         });
         await saveState();
 
@@ -53,11 +58,15 @@ export function registerSessionTools(server: McpServer) {
                 ``,
                 `Session ID: ${result.session_id}`,
                 `Invite Token: ${result.invite_token}`,
+                `Encryption Secret: ${secretB64}`,
                 `Nostr Identity: ${kp.npub}`,
                 `Expires: ${result.expires_at}`,
                 ``,
-                `Share the session ID + invite token with the other user.`,
+                `Share the session ID + invite token + encryption secret with the other user.`,
                 `They should call relay_join_session with these values.`,
+                `The encryption secret enables E2E encryption — the server cannot read messages.`,
+                ``,
+                `Dashboard URL: ${client.getRelayHost()}?sid=${result.session_id}&token=${result.creator_token}&name=${encodeURIComponent(name)}#key=${secretB64}`,
                 ``,
                 `Nostr WebSocket: ws://${client.getRelayHost()}`,
               ].join("\n"),
@@ -90,8 +99,12 @@ export function registerSessionTools(server: McpServer) {
         .string()
         .optional()
         .describe("Your name in this session"),
+      encryption_secret: z
+        .string()
+        .optional()
+        .describe("E2E encryption secret from session creator (URL-safe base64). Enables encrypted messaging."),
     },
-    async ({ session_id, invite_token, participant_name }) => {
+    async ({ session_id, invite_token, participant_name, encryption_secret }) => {
       try {
         const kp = generateKeypair();
         const result = await client.joinSession(
@@ -112,6 +125,7 @@ export function registerSessionTools(server: McpServer) {
             npub: kp.npub,
             nsec: kp.nsec,
           },
+          ...(encryption_secret ? { encryption_secret } : {}),
         });
         await saveState();
 
@@ -124,6 +138,7 @@ export function registerSessionTools(server: McpServer) {
                 ``,
                 `Participants: ${result.session.participants.join(", ")}`,
                 `Messages so far: ${result.session.message_count}`,
+                `E2E Encryption: ${encryption_secret ? "enabled" : "disabled (no secret provided)"}`,
                 `Nostr Identity: ${kp.npub}`,
                 `Expires: ${result.session.expires_at}`,
                 ``,
