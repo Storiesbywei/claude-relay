@@ -1,5 +1,6 @@
 import type { Session, StoredMessage, ParticipantInfo } from "@claude-relay/shared";
 import { LIMITS } from "@claude-relay/shared";
+import { hasSolidConfig, enqueue as enqueueSolidSync } from "../solid/solid-store.js";
 
 const sessions = new Map<string, Session>();
 
@@ -114,6 +115,11 @@ export function addMessage(sessionId: string, message: StoredMessage): void {
   const subs = sseSubscribers.get(sessionId);
   if (subs) {
     for (const cb of subs) cb(message);
+  }
+
+  // Enqueue for Solid Pod sync if session has export config
+  if (hasSolidConfig(sessionId)) {
+    enqueueSolidSync(sessionId, message.sequence);
   }
 }
 
