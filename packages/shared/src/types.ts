@@ -11,6 +11,8 @@ export interface Session {
   createdAt: Date;
   expiresAt: Date;
   lastActivityAt: Date;
+  // Nostr pubkey → token lookup (for WS→HTTP bridge)
+  nostrPubkeys: Map<string, string>;
 }
 
 export interface ParticipantInfo {
@@ -30,6 +32,8 @@ export interface StoredMessage {
   context?: { project?: string; stack?: string; branch?: string };
   sender_name?: string;
   sent_at: string;
+  // Nostr event ID this message was created from (for dedup)
+  nostr_event_id?: string;
 }
 
 export interface CreateSessionResponse {

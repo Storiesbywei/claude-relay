@@ -29,6 +29,7 @@ export function createSession(
     createdAt: now,
     expiresAt: new Date(now.getTime() + ttlMinutes * 60_000),
     lastActivityAt: now,
+    nostrPubkeys: new Map(),
   };
 
   sessions.set(id, session);
