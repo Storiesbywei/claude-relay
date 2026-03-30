@@ -13,6 +13,7 @@ const state = {
   folioCount: 0,
   userScrolled: false,
   selectedMode: 'relay', // Mode selected on setup screen before session creation
+  disappearingTTL: 0,   // Disappearing messages TTL in seconds (0 = off)
 };
 
 // Type mapping: tab label -> API type + CSS classes
@@ -339,10 +340,25 @@ function startSession(sess) {
       if (sfp && relayCrypto.enabled) {
         sfp.textContent = relayCrypto.getFingerprint() || '';
       }
+
+      // Disappearing messages indicator
+      var disappearingIndicator = document.getElementById('signal-disappearing-indicator');
+      var disappearingDuration = document.getElementById('signal-disappearing-duration');
+      if (disappearingIndicator && state.disappearingTTL > 0) {
+        disappearingIndicator.style.display = 'inline-flex';
+        if (disappearingDuration) {
+          disappearingDuration.textContent = formatDisappearingTTL(state.disappearingTTL);
+        }
+      } else if (disappearingIndicator) {
+        disappearingIndicator.style.display = 'none';
+      }
     }
   } else {
     if (signalBanner) signalBanner.style.display = 'none';
   }
+
+  // Update settings security section
+  updateSettingsSecurity();
 
   // Switch screens
   dom.setup.style.display = 'none';
@@ -420,7 +436,12 @@ function endSession() {
   // Clear trust state
   trustState.grants = [];
   trustState.keyVersion = 1;
+  state.disappearingTTL = 0;
   hideTrustUI();
+
+  // Reset security settings panel
+  updateSettingsSecurity();
+  closeKeyVerification();
 
   // Clear URL params AND fragment (which contains the encryption key)
   history.replaceState(null, '', location.pathname);
@@ -633,6 +654,8 @@ function updateEncryptionUI() {
   } else {
     dom.encryptionPill.style.display = 'none';
   }
+  // Also sync settings security section
+  updateSettingsSecurity();
 }
 
 // --------------- Message Rendering (with decryption) ---------------
@@ -741,6 +764,25 @@ function renderMessage(msg) {
     }
   }
 
+  // Signal Mode specific indicators
+  var signalIndicators = '';
+  if (state.session && state.session.mode === 'signal') {
+    // Lock icon on every signal message
+    if (msg._wasEncrypted && !msg._decryptError) {
+      signalIndicators += '<span class="signal-msg-lock" title="End-to-end encrypted">&#x1F512;</span>';
+    }
+
+    // Disappearing timer indicator
+    if (state.disappearingTTL > 0) {
+      signalIndicators += '<span class="signal-msg-timer" title="Disappearing message">&#x23F1; ' + formatDisappearingTTL(state.disappearingTTL) + '</span>';
+    }
+
+    // Sealed sender verified badge
+    if (msg._sealedSender || msg.sealed_sender) {
+      signalIndicators += '<span class="signal-verified-badge" title="Sender verified via sealed sender">&#x2713; verified</span>';
+    }
+  }
+
   entry.innerHTML =
     '<div class="entry-time-col">' +
       '<span class="entry-time">' + time.hhmm + '</span>' +
@@ -751,6 +793,7 @@ function renderMessage(msg) {
       '<div class="ec-header">' +
         '<div class="ec-avatar" style="background:' + color + '">' + initial + '</div>' +
         '<span class="ec-author">' + escapeHtml(senderName) + '</span>' +
+        signalIndicators +
         '<span class="ec-pill ' + typeInfo.pill + '">' + typeInfo.label + '</span>' +
         '<span class="ec-relative">' + relativeTime(msg.sent_at) + '</span>' +
       '</div>' +
@@ -1174,11 +1217,41 @@ function init() {
 
   // Mode selector buttons
   var modeBtns = document.querySelectorAll('.mode-btn');
+  var signalExplainer = document.getElementById('signal-explainer');
+  var disappearingSelector = document.getElementById('disappearing-selector');
+
+  function updateModeUI(mode) {
+    modeBtns.forEach(function(b) { b.classList.remove('active'); });
+    var activeBtn = document.querySelector('.mode-btn[data-mode="' + mode + '"]');
+    if (activeBtn) activeBtn.classList.add('active');
+    state.selectedMode = mode;
+
+    if (mode === 'signal') {
+      if (signalExplainer) signalExplainer.style.display = 'flex';
+      if (disappearingSelector) disappearingSelector.style.display = '';
+    } else {
+      if (signalExplainer) signalExplainer.style.display = 'none';
+      if (disappearingSelector) disappearingSelector.style.display = 'none';
+    }
+  }
+
   modeBtns.forEach(function(btn) {
     btn.addEventListener('click', function() {
-      modeBtns.forEach(function(b) { b.classList.remove('active'); });
+      updateModeUI(btn.getAttribute('data-mode') || 'relay');
+    });
+  });
+
+  // Disappearing messages timer buttons
+  var timerBtns = document.querySelectorAll('.timer-btn');
+  timerBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      timerBtns.forEach(function(b) {
+        b.classList.remove('active');
+        b.setAttribute('aria-checked', 'false');
+      });
       btn.classList.add('active');
-      state.selectedMode = btn.getAttribute('data-mode') || 'relay';
+      btn.setAttribute('aria-checked', 'true');
+      state.disappearingTTL = parseInt(btn.getAttribute('data-ttl'), 10) || 0;
     });
   });
 
@@ -1233,6 +1306,9 @@ function init() {
 
   // Settings panel (replaces old theme switcher)
   initSettings();
+
+  // Security UI (verify keys, signal fingerprint button)
+  initSecurityUI();
 
   // Periodically refresh participant list
   setInterval(function() {
@@ -2063,6 +2139,157 @@ function initTrustModal() {
   if (btnCancel) btnCancel.addEventListener('click', closeTrustModal);
   if (btnGrant) btnGrant.addEventListener('click', grantAgentTrust);
   if (backdrop) backdrop.addEventListener('click', closeTrustModal);
+}
+
+// --------------- Disappearing Messages Helper ---------------
+
+function formatDisappearingTTL(seconds) {
+  if (seconds <= 0) return 'Off';
+  if (seconds < 60) return seconds + 's';
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm';
+  if (seconds < 86400) return Math.floor(seconds / 3600) + 'h';
+  return '24h';
+}
+
+// --------------- Settings Security Section ---------------
+
+function updateSettingsSecurity() {
+  var statusEl = document.getElementById('setting-encryption-status');
+  var fpRow = document.getElementById('setting-fingerprint-row');
+  var fpEl = document.getElementById('setting-fingerprint');
+  var disappRow = document.getElementById('setting-disappearing-row');
+  var disappStatus = document.getElementById('setting-disappearing-status');
+  var verifyRow = document.getElementById('setting-verify-row');
+
+  if (!state.session) {
+    if (statusEl) {
+      statusEl.textContent = 'Not in session';
+      statusEl.className = 'encryption-status';
+    }
+    if (fpRow) fpRow.style.display = 'none';
+    if (disappRow) disappRow.style.display = 'none';
+    if (verifyRow) verifyRow.style.display = 'none';
+    return;
+  }
+
+  var isSignal = state.session.mode === 'signal';
+
+  if (relayCrypto.enabled) {
+    if (statusEl) {
+      statusEl.textContent = 'End-to-end encrypted';
+      statusEl.className = 'encryption-status active';
+    }
+    if (fpRow) {
+      fpRow.style.display = 'flex';
+      var fp = relayCrypto.getFingerprint ? relayCrypto.getFingerprint() : '';
+      if (fpEl) fpEl.textContent = fp || '---';
+    }
+    if (verifyRow) verifyRow.style.display = 'flex';
+  } else {
+    if (statusEl) {
+      statusEl.textContent = isSignal ? 'Key required' : 'Not encrypted';
+      statusEl.className = 'encryption-status';
+    }
+    if (fpRow) fpRow.style.display = 'none';
+    if (verifyRow) verifyRow.style.display = 'none';
+  }
+
+  // Disappearing messages
+  if (isSignal && state.disappearingTTL > 0) {
+    if (disappRow) disappRow.style.display = 'flex';
+    if (disappStatus) disappStatus.textContent = formatDisappearingTTL(state.disappearingTTL);
+  } else {
+    if (disappRow) disappRow.style.display = 'none';
+  }
+}
+
+// --------------- Key Verification Panel ---------------
+
+function openKeyVerification() {
+  var panel = document.getElementById('key-verification-panel');
+  var fullFp = document.getElementById('verify-fingerprint-full');
+  var qrText = document.getElementById('verify-qr-text');
+
+  if (!panel) return;
+  panel.style.display = '';
+
+  // Get full fingerprint
+  var fp = '';
+  if (relayCrypto.enabled && relayCrypto.getFingerprint) {
+    fp = relayCrypto.getFingerprint() || '';
+  }
+
+  // Show the full fingerprint (extend it if possible, or show what we have)
+  if (fullFp) {
+    // Display fingerprint in groups of 4 for readability
+    var formatted = fp.replace(/(.{4})/g, '$1 ').trim();
+    fullFp.textContent = formatted || '(no key available)';
+  }
+
+  // Simple text "QR" representation — a visual grid of the fingerprint
+  if (qrText && fp) {
+    var qrGrid = generateTextQR(fp);
+    qrText.textContent = qrGrid;
+  } else if (qrText) {
+    qrText.textContent = '(no key to display)';
+  }
+}
+
+function closeKeyVerification() {
+  var panel = document.getElementById('key-verification-panel');
+  if (panel) panel.style.display = 'none';
+}
+
+/**
+ * Generate a simple text-based visual representation of a fingerprint.
+ * Uses block characters to create a visual pattern that can be compared visually.
+ */
+function generateTextQR(fp) {
+  var chars = fp.replace(/[^a-fA-F0-9]/g, '');
+  if (chars.length < 8) return '(fingerprint too short)';
+
+  var blocks = [' ', '\u2591', '\u2592', '\u2593', '\u2588'];
+  var lines = [];
+  var width = 12;
+  var height = 6;
+
+  for (var y = 0; y < height; y++) {
+    var line = '';
+    for (var x = 0; x < width; x++) {
+      var idx = (y * width + x) % chars.length;
+      var val = parseInt(chars[idx], 16);
+      var blockIdx = Math.floor(val / 4); // 0-3 mapped to block chars
+      if (blockIdx > 4) blockIdx = 4;
+      line += blocks[blockIdx] + blocks[blockIdx];
+    }
+    lines.push(line);
+  }
+
+  return lines.join('\n');
+}
+
+// --------------- Wire Verify Keys & Signal Fingerprint Button ---------------
+
+function initSecurityUI() {
+  var verifyBtn = document.getElementById('btn-verify-keys');
+  if (verifyBtn) verifyBtn.addEventListener('click', openKeyVerification);
+
+  var closeVerifyBtn = document.getElementById('btn-close-verify');
+  if (closeVerifyBtn) closeVerifyBtn.addEventListener('click', closeKeyVerification);
+
+  // Signal banner fingerprint button — show full fingerprint on click
+  var fpBtn = document.getElementById('signal-fingerprint-btn');
+  if (fpBtn) {
+    fpBtn.addEventListener('click', function() {
+      openSettings();
+      // Scroll to security section after panel opens
+      setTimeout(function() {
+        var secSection = document.getElementById('settings-security-section');
+        if (secSection) secSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        openKeyVerification();
+      }, 350);
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

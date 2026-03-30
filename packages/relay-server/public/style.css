@@ -2132,3 +2132,496 @@ html[data-mode="signal"] .mast-title {
   border-radius: 3px;
   vertical-align: middle;
 }
+
+/* ===== UX Audit: Setup Screen Mode Selector Enhancements ===== */
+
+/* Make mode selector more prominent */
+.mode-selector {
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.mode-btn {
+  padding: 20px 16px;
+  border-width: 2px;
+  position: relative;
+  min-height: 100px;
+}
+
+.mode-btn .mode-icon {
+  font-size: 28px;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.mode-btn .mode-name {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+
+.mode-btn .mode-desc {
+  font-size: 10px;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* Signal/Private Chat mode: teal active state */
+.mode-btn[data-mode="signal"].active {
+  border-color: var(--teal);
+  background: rgba(14, 210, 184, 0.06);
+}
+
+/* Signal explainer box */
+.signal-explainer {
+  background: rgba(14, 210, 184, 0.06);
+  border: 1px solid rgba(14, 210, 184, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.signal-explainer-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.signal-explainer p {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--teal);
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* Disappearing messages timer selector */
+.disappearing-selector {
+  margin-bottom: 14px;
+}
+
+.disappearing-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+
+.timer-options {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.timer-btn {
+  padding: 5px 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 44px;
+  min-height: 32px;
+  text-align: center;
+}
+
+.timer-btn:hover {
+  color: var(--text-secondary);
+  background: var(--card-bg);
+  border-color: var(--glass-border-hover);
+}
+
+.timer-btn.active {
+  color: var(--teal);
+  border-color: rgba(14, 210, 184, 0.4);
+  background: rgba(14, 210, 184, 0.08);
+}
+
+/* ===== UX Audit: Signal Banner Enhancements ===== */
+
+.signal-banner {
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 20px;
+}
+
+.signal-banner-label {
+  font-weight: 700;
+}
+
+.signal-fingerprint-btn {
+  background: none;
+  border: 1px solid rgba(14, 210, 184, 0.2);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.signal-fingerprint-btn:hover {
+  background: rgba(14, 210, 184, 0.08);
+  border-color: rgba(14, 210, 184, 0.4);
+}
+
+.signal-fingerprint-btn .signal-fingerprint {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.signal-disappearing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--amber);
+  background: rgba(232, 160, 32, 0.08);
+  border: 1px solid rgba(232, 160, 32, 0.15);
+  border-radius: 12px;
+  padding: 2px 10px;
+}
+
+.signal-sealed-indicator {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  border-left: 1px solid rgba(14, 210, 184, 0.2);
+  padding-left: 10px;
+}
+
+/* ===== UX Audit: Encrypted Message Cards in Signal Mode ===== */
+
+html[data-mode="signal"] .entry-card {
+  border-left: 2px solid rgba(14, 210, 184, 0.15);
+}
+
+html[data-mode="signal"] .folio-entry.self-message .entry-card {
+  border-left: 2px solid rgba(232, 160, 32, 0.2);
+}
+
+/* Signal mode message lock indicator */
+.signal-msg-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--teal);
+  opacity: 0.6;
+  margin-left: 6px;
+}
+
+/* Disappearing message countdown */
+.signal-msg-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--amber);
+  opacity: 0.7;
+  margin-left: 6px;
+}
+
+/* Sealed sender verified badge */
+.signal-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--teal);
+  background: rgba(14, 210, 184, 0.08);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: 6px;
+}
+
+/* ===== UX Audit: Settings Security Section ===== */
+
+.settings-section-title-security {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--teal);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(14, 210, 184, 0.15);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  gap: 12px;
+}
+
+.settings-row + .settings-row {
+  border-top: 1px solid var(--glass-border);
+}
+
+.settings-label {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.encryption-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 3px 10px;
+  background: var(--card-bg);
+  border-radius: var(--radius-xs);
+}
+
+.encryption-status.active {
+  color: var(--teal);
+  background: rgba(14, 210, 184, 0.08);
+  border: 1px solid rgba(14, 210, 184, 0.15);
+}
+
+.fingerprint-display {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: var(--code-bg);
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.btn-verify-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(14, 210, 184, 0.08);
+  border: 1px solid rgba(14, 210, 184, 0.2);
+  border-radius: var(--radius-sm);
+  color: var(--teal);
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+  justify-content: center;
+}
+
+.btn-verify-keys:hover {
+  background: rgba(14, 210, 184, 0.15);
+  border-color: rgba(14, 210, 184, 0.35);
+}
+
+/* Key Verification Panel */
+.key-verification-panel {
+  background: rgba(14, 210, 184, 0.03);
+  border: 1px solid rgba(14, 210, 184, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-top: 4px;
+}
+
+.verify-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.verify-fingerprint-full {
+  display: block;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--teal);
+  background: var(--code-bg);
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  word-break: break-all;
+  line-height: 1.6;
+  user-select: all;
+  margin-bottom: 12px;
+}
+
+.verify-instructions {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+
+.verify-instructions p {
+  margin: 0 0 6px;
+}
+
+.verify-qr {
+  background: var(--code-bg);
+  border-radius: var(--radius-xs);
+  padding: 8px;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.verify-qr-text {
+  font-family: var(--mono);
+  font-size: 8px;
+  line-height: 1;
+  color: var(--teal);
+  margin: 0;
+  white-space: pre;
+  opacity: 0.7;
+}
+
+/* ===== UX Audit: Trust Modal Enhancements ===== */
+
+.trust-modal-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 107, 107, 0.06);
+  border: 1px solid rgba(255, 107, 107, 0.15);
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.trust-alert-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.trust-modal-alert p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.trust-modal-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.trust-warning-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.trust-modal-warning div {
+  flex: 1;
+}
+
+.trust-modal-warning p {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 4px 0 0;
+}
+
+.trust-cap-label {
+  font-size: 12px;
+}
+
+/* ===== UX Audit: Mobile Responsive (Signal Mode) ===== */
+
+@media (max-width: 600px) {
+  /* Mode selector stacks vertically on narrow screens */
+  .mode-selector {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .mode-btn {
+    min-height: 72px;
+    padding: 16px 14px;
+  }
+
+  /* Signal banner wraps */
+  .signal-banner {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 6px;
+    justify-content: center;
+    font-size: 10px;
+  }
+
+  .signal-sealed-indicator {
+    border-left: none;
+    padding-left: 0;
+    width: 100%;
+    text-align: center;
+    border-top: 1px solid rgba(14, 210, 184, 0.1);
+    padding-top: 6px;
+    margin-top: 2px;
+  }
+
+  /* Timer buttons wrap on small screens */
+  .timer-options {
+    flex-wrap: wrap;
+  }
+
+  .timer-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 14px;
+  }
+
+  /* Trust modal fits small screens */
+  .trust-modal {
+    width: 95vw;
+    max-height: 90vh;
+  }
+
+  /* Settings security rows stack */
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  /* Verify keys button full touch target */
+  .btn-verify-keys {
+    min-height: 44px;
+  }
+
+  /* Key verification panel */
+  .key-verification-panel {
+    padding: 10px;
+  }
+
+  .verify-fingerprint-full {
+    font-size: 10px;
+  }
+}

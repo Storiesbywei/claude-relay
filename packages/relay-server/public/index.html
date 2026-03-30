@@ -57,15 +57,30 @@
         <h2 id="create-heading">Create Session</h2>
         <div class="mode-selector" id="mode-selector">
           <button class="mode-btn active" data-mode="relay" id="mode-relay" type="button">
-            <span class="mode-icon">&#9671;</span>
-            <span class="mode-name">Relay</span>
-            <span class="mode-desc">Agent collaboration</span>
+            <span class="mode-icon" aria-hidden="true">&#x1F6E1;</span>
+            <span class="mode-name">Team Workspace</span>
+            <span class="mode-desc">AI agent collaboration with content scanning</span>
           </button>
           <button class="mode-btn" data-mode="signal" id="mode-signal" type="button">
-            <span class="mode-icon">&#9672;</span>
-            <span class="mode-name">Signal</span>
-            <span class="mode-desc">Encrypted messenger</span>
+            <span class="mode-icon" aria-hidden="true">&#x1F512;</span>
+            <span class="mode-name">Private Chat</span>
+            <span class="mode-desc">End-to-end encrypted, no AI agents</span>
           </button>
+        </div>
+        <div class="signal-explainer" id="signal-explainer" style="display:none" role="note">
+          <span class="signal-explainer-icon" aria-hidden="true">&#x1F512;</span>
+          <p>Messages are encrypted end-to-end. The server cannot read them. Only you and your recipient hold the keys.</p>
+        </div>
+        <div class="disappearing-selector" id="disappearing-selector" style="display:none">
+          <label class="disappearing-label">Messages disappear after</label>
+          <div class="timer-options" role="radiogroup" aria-label="Disappearing message timer">
+            <button class="timer-btn active" data-ttl="0" type="button" role="radio" aria-checked="true">Off</button>
+            <button class="timer-btn" data-ttl="30" type="button" role="radio" aria-checked="false">30s</button>
+            <button class="timer-btn" data-ttl="60" type="button" role="radio" aria-checked="false">1m</button>
+            <button class="timer-btn" data-ttl="300" type="button" role="radio" aria-checked="false">5m</button>
+            <button class="timer-btn" data-ttl="3600" type="button" role="radio" aria-checked="false">1h</button>
+            <button class="timer-btn" data-ttl="86400" type="button" role="radio" aria-checked="false">24h</button>
+          </div>
         </div>
         <label for="create-name" class="sr-only">Session name</label>
         <input type="text" id="create-name" placeholder="Session name" value="Director Session">
@@ -153,10 +168,19 @@
     </div>
 
     <!-- Signal mode banner (shown in signal mode sessions) -->
-    <div class="signal-banner" id="signal-banner" style="display:none">
-      <span class="signal-shield">&#9672;</span>
-      <span>End-to-end encrypted</span>
-      <span class="signal-fingerprint" id="signal-fingerprint"></span>
+    <div class="signal-banner" id="signal-banner" style="display:none" role="status" aria-label="Encryption status">
+      <span class="signal-shield" aria-hidden="true">&#x1F512;</span>
+      <span class="signal-banner-label">End-to-end encrypted</span>
+      <button class="signal-fingerprint-btn" id="signal-fingerprint-btn" title="Click to view full key fingerprint" aria-label="View key fingerprint">
+        <span class="signal-fingerprint" id="signal-fingerprint"></span>
+      </button>
+      <span class="signal-disappearing-indicator" id="signal-disappearing-indicator" style="display:none" aria-label="Disappearing messages active">
+        <span aria-hidden="true">&#x23F1;</span>
+        <span id="signal-disappearing-duration"></span>
+      </span>
+      <span class="signal-sealed-indicator" id="signal-sealed-indicator" style="display:none" aria-label="Sealed sender active">
+        Sender identity hidden from server
+      </span>
     </div>
 
     <!-- Content -->
@@ -306,50 +330,52 @@
 
   <!-- ============ TRUST AGENT MODAL ============ -->
   <div class="trust-modal-backdrop" id="trust-modal-backdrop" style="display:none"></div>
-  <div class="trust-modal" id="trust-modal" role="dialog" aria-modal="true" aria-label="Trust Agent" style="display:none">
+  <div class="trust-modal" id="trust-modal" role="dialog" aria-modal="true" aria-label="Grant Agent Access" style="display:none">
     <div class="trust-modal-header">
-      <h2>Grant Agent Trust</h2>
+      <h2>Grant Agent Access</h2>
       <button class="settings-close" id="trust-modal-close" aria-label="Close trust modal">
         <i class="ph ph-x"></i>
       </button>
     </div>
     <div class="trust-modal-body">
-      <p class="trust-modal-desc">
-        Grant a Claude agent encrypted read/write access to this Signal Mode session.
-        The agent receives a sub-key derived from a key rotation — it cannot read messages
-        sent before this invite.
-      </p>
+      <div class="trust-modal-alert">
+        <span class="trust-alert-icon" aria-hidden="true">&#x26A0;</span>
+        <p>This agent will be able to read messages in this session. Messages sent before this point remain private.</p>
+      </div>
 
       <div class="setting-row">
-        <label for="trust-agent-id">Agent Name/ID</label>
+        <label for="trust-agent-id">Agent Name or ID</label>
         <input type="text" id="trust-agent-id" placeholder="e.g. worker-claude" style="width:100%">
       </div>
 
       <div class="setting-row">
-        <label for="trust-agent-psk">Pre-shared Key</label>
-        <input type="text" id="trust-agent-psk" placeholder="Shared secret for key wrapping" style="width:100%">
-        <span class="setting-desc">A secret known to both you and the agent's MCP config</span>
+        <label for="trust-agent-psk">Agent secret key</label>
+        <input type="text" id="trust-agent-psk" placeholder="Provided by the agent operator" style="width:100%">
+        <span class="setting-desc">A secret shared between you and the agent's operator, used to encrypt the access key</span>
       </div>
 
       <div class="trust-caps-section">
-        <div class="rail-sub-label">Capabilities</div>
-        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-read" checked disabled> Read messages</label>
-        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-write" checked> Write messages</label>
-        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-auto-approve"> Auto-approve (skip approval queue)</label>
-        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-bridge-nostr"> Bridge to Nostr</label>
-        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-bridge-solid"> Bridge to Solid Pod</label>
+        <div class="rail-sub-label">Permissions</div>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-read" checked disabled> <span class="trust-cap-label">Can read messages</span></label>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-write" checked> <span class="trust-cap-label">Can send messages</span></label>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-auto-approve"> <span class="trust-cap-label">Skip approval queue (messages send immediately)</span></label>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-bridge-nostr"> <span class="trust-cap-label">Bridge to Nostr</span></label>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-bridge-solid"> <span class="trust-cap-label">Bridge to Solid Pod</span></label>
       </div>
 
       <div class="trust-modal-warning">
-        <strong>Forward Secrecy:</strong> A key rotation will occur. The agent will only be able
-        to decrypt messages sent <em>after</em> this invite. Pre-invite messages remain sealed.
+        <span class="trust-warning-icon" aria-hidden="true">&#x1F511;</span>
+        <div>
+          <strong>Forward secrecy boundary</strong>
+          <p>A new encryption key will be generated. The agent cannot read messages sent before this point.</p>
+        </div>
       </div>
 
       <div class="trust-modal-error" id="trust-modal-error" role="alert"></div>
     </div>
     <div class="trust-modal-footer">
       <button class="btn-ghost-chronicle" id="trust-modal-cancel">Cancel</button>
-      <button class="btn-chronicle trust-grant-btn" id="trust-modal-grant">Grant Trust</button>
+      <button class="btn-chronicle trust-grant-btn" id="trust-modal-grant">Grant Access</button>
     </div>
   </div>
 
@@ -487,6 +513,58 @@
             <span class="toggle-track"></span>
           </div>
         </div>
+      </div>
+
+      <!-- Security (always visible — these are critical) -->
+      <div class="settings-section" id="settings-security-section">
+        <h3 class="settings-section-title-security">Security</h3>
+
+        <div class="settings-row">
+          <div class="setting-label-group">
+            <span class="settings-label">Encryption</span>
+            <span class="setting-desc">Current session encryption status</span>
+          </div>
+          <span class="encryption-status" id="setting-encryption-status">Not in session</span>
+        </div>
+
+        <div class="settings-row" id="setting-fingerprint-row" style="display:none">
+          <div class="setting-label-group">
+            <span class="settings-label">Key Fingerprint</span>
+            <span class="setting-desc">Compare with your contact to verify encryption</span>
+          </div>
+          <code class="fingerprint-display" id="setting-fingerprint">&mdash;</code>
+        </div>
+
+        <div class="settings-row" id="setting-disappearing-row" style="display:none">
+          <div class="setting-label-group">
+            <span class="settings-label">Disappearing Messages</span>
+            <span class="setting-desc">Messages auto-delete after timer expires</span>
+          </div>
+          <span id="setting-disappearing-status">Off</span>
+        </div>
+
+        <div class="settings-row" id="setting-verify-row" style="display:none">
+          <button class="btn-verify-keys" id="btn-verify-keys" type="button">
+            <span aria-hidden="true">&#x1F50D;</span> Verify Keys
+          </button>
+        </div>
+      </div>
+
+      <!-- Key Verification Panel (hidden by default) -->
+      <div class="settings-section key-verification-panel" id="key-verification-panel" style="display:none">
+        <h3 class="settings-section-title-security">Key Verification</h3>
+        <div class="verify-fingerprint-block">
+          <label class="verify-label">Full Key Fingerprint</label>
+          <code class="verify-fingerprint-full" id="verify-fingerprint-full">&mdash;</code>
+        </div>
+        <div class="verify-instructions">
+          <p>Compare this code with your contact over a separate channel (phone call, in person, or another secure app).</p>
+          <p>If the codes match, your conversation is secure.</p>
+        </div>
+        <div class="verify-qr" id="verify-qr" aria-label="Key fingerprint as text QR representation">
+          <pre class="verify-qr-text" id="verify-qr-text"></pre>
+        </div>
+        <button class="btn-ghost-chronicle" id="btn-close-verify" type="button" style="margin-top:8px;font-size:10px;padding:8px">Close</button>
       </div>
 
       <!-- Protocol (advanced) -->
