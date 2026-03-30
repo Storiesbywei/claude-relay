@@ -30,10 +30,15 @@ sessionRoutes.post("/", async (c) => {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
 
-  const { name, ttl_minutes, nostr_pubkey, mode } = parsed.data;
+  const { name, ttl_minutes, nostr_pubkey, mode, disappearing } = parsed.data;
   const sessionId = crypto.randomUUID();
   const creatorToken = crypto.randomUUID();
   const inviteToken = crypto.randomUUID();
+
+  // Disappearing messages are only allowed in signal mode
+  if (disappearing?.enabled && mode !== 'signal') {
+    return c.json({ error: "Disappearing messages are only available in signal mode" }, 400);
+  }
 
   try {
     const session = createSession(
@@ -42,7 +47,8 @@ sessionRoutes.post("/", async (c) => {
       creatorToken,
       inviteToken,
       ttl_minutes ?? 60,
-      mode ?? 'relay'
+      mode ?? 'relay',
+      disappearing?.enabled ? disappearing.ttl_seconds : undefined
     );
 
     if (nostr_pubkey) {
@@ -57,6 +63,7 @@ sessionRoutes.post("/", async (c) => {
         expires_at: session.expiresAt.toISOString(),
         mode: session.mode || 'relay',
         ...(nostr_pubkey && { nostr_pubkey }),
+        ...(session.disappearing && { disappearing: session.disappearing }),
       },
       201
     );

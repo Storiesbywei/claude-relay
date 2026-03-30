@@ -1,5 +1,13 @@
 // Server-side types (not Zod — these are internal to the relay server)
 
+/** Disappearing messages configuration for Signal Mode sessions. */
+export interface DisappearingConfig {
+  /** Whether disappearing messages are enabled. */
+  enabled: boolean;
+  /** Time-to-live in seconds after which messages are deleted. */
+  ttl_seconds: number; // 30, 60, 300, 3600, 86400
+}
+
 export interface Session {
   id: string;
   name: string;
@@ -15,6 +23,8 @@ export interface Session {
   nostrPubkeys: Map<string, string>;
   /** Session mode: 'relay' (agent collaboration) or 'signal' (encrypted human messenger) */
   mode?: 'relay' | 'signal';
+  /** Disappearing messages config (signal mode only). */
+  disappearing?: DisappearingConfig;
 }
 
 export interface ParticipantInfo {

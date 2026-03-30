@@ -9,3 +9,4 @@ export * from "./nostr-types.js";
 export * from "./nostr-crypto.js";
 export * from "./nostr-utils.js";
 export * from "./solid-types.js";
+export * from "./ratchet.js";

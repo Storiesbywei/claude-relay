@@ -134,6 +134,9 @@ const migrations: string[] = [
   // a session's mode after creation is a security violation.
   "ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'relay'",
   "ALTER TABLE messages ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0",
+  // Disappearing messages: TTL for auto-delete and per-message expiry
+  "ALTER TABLE sessions ADD COLUMN disappearing_ttl INTEGER",
+  "ALTER TABLE messages ADD COLUMN disappear_after TEXT",
 ];
 
 for (const sql of migrations) {
@@ -221,14 +224,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON solid_sync_queue(status);
 `);
 
+// Disappearing messages index — for efficient sweep queries
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_messages_disappear_after
+    ON messages(disappear_after)
+    WHERE disappear_after IS NOT NULL;
+`);
+
 // ---------------------------------------------------------------------------
 // Prepared statements — hot-path queries
 // ---------------------------------------------------------------------------
 
 const stmts = {
   insertSession: db.prepare(`
-    INSERT INTO sessions (id, name, creator_token, invite_token, sequence_counter, created_at, expires_at, last_activity_at, mode)
-    VALUES ($id, $name, $creator_token, $invite_token, 0, $created_at, $expires_at, $last_activity_at, $mode)
+    INSERT INTO sessions (id, name, creator_token, invite_token, sequence_counter, created_at, expires_at, last_activity_at, mode, disappearing_ttl)
+    VALUES ($id, $name, $creator_token, $invite_token, 0, $created_at, $expires_at, $last_activity_at, $mode, $disappearing_ttl)
   `),
 
   getSessionById: db.prepare(`
@@ -278,8 +288,8 @@ const stmts = {
   `),
 
   insertMessage: db.prepare(`
-    INSERT INTO messages (session_id, message_id, sequence, type, title, content, tags, refs, context, sender_name, sent_at, nostr_event_id, solid_resource_url, encrypted)
-    VALUES ($session_id, $message_id, $sequence, $type, $title, $content, $tags, $refs, $context, $sender_name, $sent_at, $nostr_event_id, $solid_resource_url, $encrypted)
+    INSERT INTO messages (session_id, message_id, sequence, type, title, content, tags, refs, context, sender_name, sent_at, nostr_event_id, solid_resource_url, encrypted, disappear_after)
+    VALUES ($session_id, $message_id, $sequence, $type, $title, $content, $tags, $refs, $context, $sender_name, $sent_at, $nostr_event_id, $solid_resource_url, $encrypted, $disappear_after)
   `),
 
   countMessages: db.prepare(`
@@ -530,6 +540,23 @@ const stmts = {
     WHERE session_id = $session_id AND sequence = $sequence
     LIMIT 1
   `),
+
+  // -------------------------------------------------------------------------
+  // Disappearing messages: sweep expired messages
+  // -------------------------------------------------------------------------
+
+  sweepDisappearingMessages: db.prepare(`
+    DELETE FROM messages
+    WHERE disappear_after IS NOT NULL AND disappear_after < $now
+  `),
+
+  getDisappearingTtl: db.prepare(`
+    SELECT disappearing_ttl FROM sessions WHERE id = $session_id
+  `),
+
+  setDisappearingTtl: db.prepare(`
+    UPDATE sessions SET disappearing_ttl = $ttl WHERE id = $session_id
+  `),
 };
 
 // ---------------------------------------------------------------------------
@@ -555,6 +582,7 @@ interface SessionRow {
   pod_synced_sequence: number | null;
   solid_config: string | null;
   mode: string | null;
+  disappearing_ttl: number | null;
 }
 
 interface ParticipantRow {
@@ -578,6 +606,7 @@ interface MessageRow {
   nostr_event_id: string | null;
   solid_resource_url: string | null;
   encrypted: number;
+  disappear_after: string | null;
 }
 
 function rowToSession(row: SessionRow): Session {
@@ -619,6 +648,9 @@ function rowToSession(row: SessionRow): Session {
     lastActivityAt: new Date(row.last_activity_at),
     nostrPubkeys,
     mode: (row.mode as 'relay' | 'signal') || 'relay',
+    ...(row.disappearing_ttl != null
+      ? { disappearing: { enabled: true, ttl_seconds: row.disappearing_ttl } }
+      : {}),
   };
 }
 
@@ -650,7 +682,8 @@ export function createSession(
   creatorToken: string,
   inviteToken: string,
   ttlMinutes: number,
-  mode: 'relay' | 'signal' = 'relay'
+  mode: 'relay' | 'signal' = 'relay',
+  disappearingTtl?: number
 ): Session {
   const count = (stmts.countSessions.get() as { cnt: number }).cnt;
   if (count >= LIMITS.MAX_SESSIONS) {
@@ -669,6 +702,7 @@ export function createSession(
     $expires_at: expiresAt.toISOString(),
     $last_activity_at: now.toISOString(),
     $mode: mode,
+    $disappearing_ttl: disappearingTtl ?? null,
   });
 
   return {
@@ -684,6 +718,9 @@ export function createSession(
     lastActivityAt: now,
     nostrPubkeys: new Map(),
     mode,
+    ...(disappearingTtl != null
+      ? { disappearing: { enabled: true, ttl_seconds: disappearingTtl } }
+      : {}),
   };
 }
 
@@ -810,6 +847,14 @@ const addMessageTx = db.transaction((sessionId: string, message: StoredMessage) 
 
   message.sequence = newSequence;
 
+  // Compute disappear_after if session has a disappearing TTL
+  let disappearAfter: string | null = null;
+  const ttlRow = stmts.getDisappearingTtl.get({ $session_id: sessionId }) as { disappearing_ttl: number | null } | null;
+  if (ttlRow?.disappearing_ttl) {
+    const sentMs = new Date(message.sent_at).getTime();
+    disappearAfter = new Date(sentMs + ttlRow.disappearing_ttl * 1000).toISOString();
+  }
+
   stmts.insertMessage.run({
     $session_id: sessionId,
     $message_id: message.message_id,
@@ -825,6 +870,7 @@ const addMessageTx = db.transaction((sessionId: string, message: StoredMessage) 
     $nostr_event_id: (message as any).nostr_event_id ?? null,
     $solid_resource_url: (message as any).solid_resource_url ?? null,
     $encrypted: message.encrypted ? 1 : 0,
+    $disappear_after: disappearAfter,
   });
 
   const now = new Date().toISOString();
@@ -891,6 +937,17 @@ export function sweepExpiredSessions(): number {
   }
 
   return expired.length;
+}
+
+/**
+ * Delete messages whose disappear_after timestamp has passed.
+ * Runs on the same sweep interval as session expiry.
+ * Returns the number of messages deleted.
+ */
+export function sweepDisappearingMessages(): number {
+  const now = new Date().toISOString();
+  const result = stmts.sweepDisappearingMessages.run({ $now: now });
+  return result.changes;
 }
 
 export function getSessionCount(): number {

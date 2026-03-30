@@ -530,3 +530,316 @@ var relayCrypto = {
     this._currentSecret = new Uint8Array(secret);
   },
 };
+
+// ─── Hash Ratchet (Browser) ─────────────────────────────────────────────────
+// Per-message forward secrecy using HKDF + AES-256-GCM (Web Crypto API).
+// Compatible with the server-side @noble ratchet when using AES-GCM mode.
+//
+// NOTE: The server-side ratchet uses ChaCha20-Poly1305 via @noble/ciphers.
+// This browser version uses AES-256-GCM via Web Crypto for broader compatibility.
+// Both sides must use the same cipher — in practice, the browser dashboard
+// manages its own ratchet state and never cross-decrypts with the MCP server.
+
+var relayRatchet = {
+  /** @type {{chainKey: Uint8Array, messageIndex: number, skippedKeys: Map<number, Uint8Array>, maxSkip: number}|null} */
+  _state: null,
+  /** @type {string|null} */
+  _senderName: null,
+  /** @type {boolean} */
+  enabled: false,
+
+  /**
+   * Initialize the ratchet from a session secret and session ID.
+   * @param {Uint8Array} secret - 32-byte session secret
+   * @param {string} sessionId
+   * @param {string} senderName - Name to embed in sealed sender payloads
+   */
+  async init(secret, sessionId, senderName) {
+    var salt = new TextEncoder().encode(sessionId);
+    var info = new TextEncoder().encode('ratchet-init');
+
+    // HKDF-Extract + Expand to derive initial chain key
+    var keyMaterial = await crypto.subtle.importKey('raw', secret, 'HKDF', false, ['deriveBits']);
+    var chainKeyBits = await crypto.subtle.deriveBits(
+      { name: 'HKDF', hash: 'SHA-256', salt: salt, info: info },
+      keyMaterial,
+      256
+    );
+
+    this._state = {
+      chainKey: new Uint8Array(chainKeyBits),
+      messageIndex: 0,
+      skippedKeys: new Map(),
+      maxSkip: 100,
+    };
+    this._senderName = senderName;
+    this.enabled = true;
+  },
+
+  /**
+   * Step the chain key forward. Returns nextChainKey and messageKey.
+   * @param {Uint8Array} chainKey
+   * @returns {Promise<{nextChainKey: Uint8Array, messageKey: Uint8Array}>}
+   */
+  async _stepChainKey(chainKey) {
+    var keyMaterial = await crypto.subtle.importKey('raw', chainKey, 'HKDF', false, ['deriveBits']);
+    var chainStepInfo = new TextEncoder().encode('chain-step');
+    var messageKeyInfo = new TextEncoder().encode('message-key');
+    // Use empty salt for HKDF-Expand (chain key is already a PRK)
+    var emptySalt = new Uint8Array(0);
+
+    var nextBits = await crypto.subtle.deriveBits(
+      { name: 'HKDF', hash: 'SHA-256', salt: emptySalt, info: chainStepInfo },
+      keyMaterial,
+      256
+    );
+    var msgBits = await crypto.subtle.deriveBits(
+      { name: 'HKDF', hash: 'SHA-256', salt: emptySalt, info: messageKeyInfo },
+      keyMaterial,
+      256
+    );
+
+    return {
+      nextChainKey: new Uint8Array(nextBits),
+      messageKey: new Uint8Array(msgBits),
+    };
+  },
+
+  /**
+   * Encrypt a message with the ratchet (sealed sender: sender name inside payload).
+   * @param {string} content
+   * @returns {Promise<{content: string, encrypted: boolean}>}
+   */
+  async seal(content) {
+    if (!this.enabled || !this._state) {
+      return { content: content, encrypted: false };
+    }
+
+    var state = this._state;
+    var step = await this._stepChainKey(state.chainKey);
+    var currentIndex = state.messageIndex;
+
+    // Zero old chain key, advance state
+    state.chainKey.fill(0);
+    state.chainKey = step.nextChainKey;
+    state.messageIndex++;
+
+    // Sealed sender: embed sender name inside the encrypted content
+    var sealedPayload = JSON.stringify({
+      sender: this._senderName || 'anonymous',
+      content: content,
+    });
+
+    // Encrypt with AES-256-GCM
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    var aesKey = await crypto.subtle.importKey(
+      'raw', step.messageKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
+    );
+    var ciphertextBuf = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv },
+      aesKey,
+      new TextEncoder().encode(sealedPayload)
+    );
+
+    // Zero message key
+    step.messageKey.fill(0);
+
+    var ratchetPayload = {
+      ciphertext: bufferToBase64(ciphertextBuf),
+      iv: bufferToBase64(iv),
+      index: currentIndex,
+      ratchet: true,
+    };
+
+    return {
+      content: JSON.stringify(ratchetPayload),
+      encrypted: true,
+    };
+  },
+
+  /**
+   * Decrypt a ratchet message. Handles out-of-order delivery.
+   * @param {string} content - JSON string containing ratchet payload
+   * @param {boolean} isEncrypted
+   * @returns {Promise<{text: string, wasEncrypted: boolean, error: string|null, sender: string|null}>}
+   */
+  async unseal(content, isEncrypted) {
+    if (!isEncrypted || !this.enabled || !this._state) {
+      return { text: content, wasEncrypted: false, error: null, sender: null };
+    }
+
+    var parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      return { text: content, wasEncrypted: false, error: null, sender: null };
+    }
+
+    if (!parsed || !parsed.ratchet) {
+      // Not a ratchet payload — fall back to standard AES-GCM decryption
+      return { text: content, wasEncrypted: false, error: null, sender: null };
+    }
+
+    var state = this._state;
+    var ciphertextBytes = base64ToBuffer(parsed.ciphertext);
+    var nonce = base64ToBuffer(parsed.iv);
+    var index = parsed.index;
+    var messageKey;
+
+    try {
+      if (index < state.messageIndex) {
+        // Past message — check skipped keys cache
+        var cached = state.skippedKeys.get(index);
+        if (!cached) {
+          return {
+            text: '[Ratchet: message key already consumed]',
+            wasEncrypted: true,
+            error: 'Key consumed',
+            sender: null,
+          };
+        }
+        messageKey = cached;
+        state.skippedKeys.delete(index);
+      } else if (index === state.messageIndex) {
+        // Expected next message
+        var step = await this._stepChainKey(state.chainKey);
+        state.chainKey.fill(0);
+        state.chainKey = step.nextChainKey;
+        state.messageIndex++;
+        messageKey = step.messageKey;
+      } else {
+        // Future message — skip forward
+        var skip = index - state.messageIndex;
+        if (skip > state.maxSkip) {
+          return {
+            text: '[Ratchet: too many skipped messages]',
+            wasEncrypted: true,
+            error: 'Max skip exceeded',
+            sender: null,
+          };
+        }
+
+        for (var i = state.messageIndex; i < index; i++) {
+          var s = await this._stepChainKey(state.chainKey);
+          state.chainKey.fill(0);
+          state.chainKey = s.nextChainKey;
+          state.skippedKeys.set(i, s.messageKey);
+        }
+
+        var finalStep = await this._stepChainKey(state.chainKey);
+        state.chainKey.fill(0);
+        state.chainKey = finalStep.nextChainKey;
+        state.messageIndex = index + 1;
+        messageKey = finalStep.messageKey;
+      }
+
+      // Decrypt
+      var aesKey = await crypto.subtle.importKey(
+        'raw', messageKey, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+      );
+      var plaintextBuf = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: new Uint8Array(nonce) },
+        aesKey,
+        new Uint8Array(ciphertextBytes)
+      );
+
+      // Zero the message key
+      messageKey.fill(0);
+
+      var plaintext = new TextDecoder().decode(plaintextBuf);
+
+      // Unseal sender
+      try {
+        var unsealed = JSON.parse(plaintext);
+        if (unsealed && typeof unsealed.sender === 'string' && typeof unsealed.content === 'string') {
+          return {
+            text: unsealed.content,
+            wasEncrypted: true,
+            error: null,
+            sender: unsealed.sender,
+          };
+        }
+      } catch (e2) {
+        // Not a sealed sender payload — return raw
+      }
+
+      return { text: plaintext, wasEncrypted: true, error: null, sender: null };
+    } catch (e) {
+      return {
+        text: '[Ratchet decryption failed]',
+        wasEncrypted: true,
+        error: e.message || 'Decryption failed',
+        sender: null,
+      };
+    }
+  },
+
+  /**
+   * Perform a key update (post-compromise security).
+   * Returns the entropy to send to the peer.
+   * @returns {Promise<{entropy: string, index: number, key_update: true}>}
+   */
+  async keyUpdate() {
+    if (!this._state) throw new Error('No ratchet state');
+    var state = this._state;
+
+    var entropy = crypto.getRandomValues(new Uint8Array(32));
+    var currentIndex = state.messageIndex;
+
+    await this._applyKeyUpdate(entropy);
+
+    return {
+      entropy: bufferToBase64(entropy),
+      index: currentIndex,
+      key_update: true,
+    };
+  },
+
+  /**
+   * Apply a key update from a peer.
+   * @param {Uint8Array} entropy
+   */
+  async _applyKeyUpdate(entropy) {
+    var state = this._state;
+    if (!state) return;
+
+    // Mix entropy with current chain key via HKDF
+    var keyMaterial = await crypto.subtle.importKey('raw', entropy, 'HKDF', false, ['deriveBits']);
+    var info = new TextEncoder().encode('ratchet-init');
+    var newBits = await crypto.subtle.deriveBits(
+      { name: 'HKDF', hash: 'SHA-256', salt: state.chainKey, info: info },
+      keyMaterial,
+      256
+    );
+
+    state.chainKey.fill(0);
+    state.chainKey = new Uint8Array(newBits);
+
+    // Clear skipped keys (old epoch)
+    for (var entry of state.skippedKeys.values()) {
+      entry.fill(0);
+    }
+    state.skippedKeys.clear();
+  },
+
+  /**
+   * Clear ratchet state (on session end).
+   */
+  clear() {
+    if (this._state) {
+      this._state.chainKey.fill(0);
+      for (var entry of this._state.skippedKeys.values()) {
+        entry.fill(0);
+      }
+      this._state.skippedKeys.clear();
+      this._state = null;
+    }
+    this._senderName = null;
+    this.enabled = false;
+  },
+
+  /** Get current message index */
+  getMessageIndex() {
+    return this._state ? this._state.messageIndex : 0;
+  },
+};

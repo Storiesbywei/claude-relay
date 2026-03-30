@@ -78,10 +78,14 @@ relayRoutes.post("/:session_id", async (c) => {
   }
 
   // Verify encrypted payloads actually contain valid encrypted structure
+  // Supports both AES-GCM payloads ({ ciphertext, iv, encrypted }) and
+  // ratchet payloads ({ ciphertext, iv, index, ratchet }) for forward secrecy.
   if (parsed.data.encrypted) {
     try {
       const payload = JSON.parse(parsed.data.content);
-      if (typeof payload.ciphertext !== 'string' || typeof payload.iv !== 'string' || !payload.encrypted) {
+      const isAesGcm = payload.encrypted === true && typeof payload.ciphertext === 'string' && typeof payload.iv === 'string';
+      const isRatchet = payload.ratchet === true && typeof payload.ciphertext === 'string' && typeof payload.iv === 'string' && typeof payload.index === 'number';
+      if (!isAesGcm && !isRatchet) {
         return c.json({ error: 'Invalid encrypted payload structure' }, 400);
       }
       if (payload.ciphertext.length < 20 || payload.iv.length < 12) {
@@ -118,7 +122,10 @@ relayRoutes.post("/:session_id", async (c) => {
     tags: parsed.data.tags,
     references: parsed.data.references,
     context: parsed.data.context,
-    sender_name: senderName,
+    // Sealed sender: in signal mode, the relay stores "sealed" instead of the
+    // real sender name. The actual sender identity is inside the encrypted payload.
+    // This prevents the relay from building a sender/recipient graph.
+    sender_name: isSignalMode ? "sealed" : senderName,
     sent_at: new Date().toISOString(),
     origin: parsed.data.origin || "http",
     ...(parsed.data.encrypted ? { encrypted: true } : {}),

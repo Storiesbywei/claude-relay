@@ -11,7 +11,7 @@ import { relayRoutes } from "./routes/relay.js";
 import { solidSyncRoutes } from "./routes/solid-sync.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
-import { sweepExpiredSessions } from "./store/sqlite.js";
+import { sweepExpiredSessions, sweepDisappearingMessages } from "./store/sqlite.js";
 import { syncEngine } from "./solid/sync-engine.js";
 import { RELAY_PORT, LIMITS, RELAY_INFO } from "@claude-relay/shared";
 import { handleOpen, handleClose, handleMessage, handlePong, getNostrStats, setCanonicalRelayUrl, onNostrRelayEvent } from "./nostr/handler.js";
@@ -109,11 +109,15 @@ app.use("/*", async (c, next) => {
   await next();
 });
 
-// TTL sweep
+// TTL sweep + disappearing messages sweep
 const sweepInterval = setInterval(() => {
   const swept = sweepExpiredSessions();
   if (swept > 0) {
     console.log(`[sweep] Removed ${swept} expired session(s)`);
+  }
+  const disappearedCount = sweepDisappearingMessages();
+  if (disappearedCount > 0) {
+    console.log(`[sweep] Deleted ${disappearedCount} disappearing message(s)`);
   }
 }, LIMITS.TTL_SWEEP_INTERVAL_MS);
 

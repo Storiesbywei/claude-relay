@@ -64,6 +64,12 @@ export const NostrPubkeySchema = z
   .optional()
   .describe("Nostr public key (hex) to bind to this session");
 
+export const DisappearingConfigSchema = z.object({
+  enabled: z.boolean(),
+  ttl_seconds: z.number().int().min(5).max(86400)
+    .describe("Time-to-live in seconds: 30, 60, 300, 3600, 86400"),
+}).optional().describe("Disappearing messages config (signal mode only)");
+
 export const CreateSessionRequestSchema = z.object({
   name: z.string().min(1).max(100).describe("Human-readable session name"),
   ttl_minutes: z
@@ -76,6 +82,7 @@ export const CreateSessionRequestSchema = z.object({
   nostr_pubkey: NostrPubkeySchema,
   mode: z.enum(['relay', 'signal']).optional().default('relay')
     .describe("Session mode: 'relay' for agent collaboration, 'signal' for encrypted human messenger"),
+  disappearing: DisappearingConfigSchema,
 });
 
 export const JoinSessionRequestSchema = z.object({
