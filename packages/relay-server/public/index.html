@@ -125,6 +125,7 @@
           <span class="lock-icon" aria-hidden="true">&#x1F512;</span>
           <span class="encryption-label" id="encryption-label">Encrypted</span>
           <span class="key-fingerprint" id="key-fingerprint"></span>
+          <span class="key-version-badge" id="key-version-badge" style="display:none" title="Key version">v1</span>
         </div>
         <div class="connection-pill" id="connection-pill" role="status" aria-label="Connection status">
           <span class="dot" aria-hidden="true"></span>
@@ -225,6 +226,13 @@
           <div class="rail-sub-label">Participants</div>
           <ul class="participant-list" id="participant-list"></ul>
 
+          <!-- Capability Lattice: Trusted Agents -->
+          <div class="rail-sub-label" id="trust-section-label" style="display:none">Trusted Agents</div>
+          <div id="trust-agents-list" class="trust-agents-list" style="display:none"></div>
+          <button class="btn-ghost-chronicle trust-invite-btn" id="btn-trust-agent" style="display:none;margin-bottom:8px;font-size:10px;padding:8px" aria-label="Invite trusted agent">
+            + Trust Agent
+          </button>
+
           <div class="rail-sub-label">Identity</div>
           <div class="identity-row">
             <span class="identity-label">npub</span>
@@ -295,6 +303,55 @@
 
     </div><!-- /app-content -->
   </div><!-- /main -->
+
+  <!-- ============ TRUST AGENT MODAL ============ -->
+  <div class="trust-modal-backdrop" id="trust-modal-backdrop" style="display:none"></div>
+  <div class="trust-modal" id="trust-modal" role="dialog" aria-modal="true" aria-label="Trust Agent" style="display:none">
+    <div class="trust-modal-header">
+      <h2>Grant Agent Trust</h2>
+      <button class="settings-close" id="trust-modal-close" aria-label="Close trust modal">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    <div class="trust-modal-body">
+      <p class="trust-modal-desc">
+        Grant a Claude agent encrypted read/write access to this Signal Mode session.
+        The agent receives a sub-key derived from a key rotation — it cannot read messages
+        sent before this invite.
+      </p>
+
+      <div class="setting-row">
+        <label for="trust-agent-id">Agent Name/ID</label>
+        <input type="text" id="trust-agent-id" placeholder="e.g. worker-claude" style="width:100%">
+      </div>
+
+      <div class="setting-row">
+        <label for="trust-agent-psk">Pre-shared Key</label>
+        <input type="text" id="trust-agent-psk" placeholder="Shared secret for key wrapping" style="width:100%">
+        <span class="setting-desc">A secret known to both you and the agent's MCP config</span>
+      </div>
+
+      <div class="trust-caps-section">
+        <div class="rail-sub-label">Capabilities</div>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-read" checked disabled> Read messages</label>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-write" checked> Write messages</label>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-auto-approve"> Auto-approve (skip approval queue)</label>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-bridge-nostr"> Bridge to Nostr</label>
+        <label class="trust-cap-row"><input type="checkbox" id="trust-cap-bridge-solid"> Bridge to Solid Pod</label>
+      </div>
+
+      <div class="trust-modal-warning">
+        <strong>Forward Secrecy:</strong> A key rotation will occur. The agent will only be able
+        to decrypt messages sent <em>after</em> this invite. Pre-invite messages remain sealed.
+      </div>
+
+      <div class="trust-modal-error" id="trust-modal-error" role="alert"></div>
+    </div>
+    <div class="trust-modal-footer">
+      <button class="btn-ghost-chronicle" id="trust-modal-cancel">Cancel</button>
+      <button class="btn-chronicle trust-grant-btn" id="trust-modal-grant">Grant Trust</button>
+    </div>
+  </div>
 
   <!-- ============ SETTINGS PANEL ============ -->
   <div class="settings-backdrop" id="settings-backdrop"></div>

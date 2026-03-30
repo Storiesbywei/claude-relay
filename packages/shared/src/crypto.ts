@@ -237,6 +237,174 @@ export async function decryptMessage(
   return new TextDecoder().decode(plaintextBuffer);
 }
 
+// ─── Capability Lattice: Key Rotation ────────────────────────────────────────
+
+/**
+ * Rotate the session key by deriving a new version from the current secret
+ * plus a random nonce. Used when inviting or revoking an agent.
+ *
+ * The derivation chain is:
+ *   keyV(n+1) = HKDF(currentSecret || nonce, sessionId + ":v" + version)
+ *
+ * This provides forward secrecy at the invite boundary:
+ * - An invited agent receives keyV2 but NOT keyV1 (cannot read pre-invite messages)
+ * - A revoked agent had keyV2 but does NOT receive keyV3 (cannot read post-revoke)
+ * - Humans receive all key versions and can read the full history
+ *
+ * @param currentSecret - The current session secret (raw bytes)
+ * @param nonce - 32-byte random nonce for this rotation
+ * @param sessionId - Session ID for domain separation
+ * @param version - New key version number
+ * @returns The new CryptoKey and the new raw secret bytes
+ */
+export async function rotateSessionKey(
+  currentSecret: Uint8Array,
+  nonce: Uint8Array,
+  sessionId: string,
+  version: number
+): Promise<{ key: CryptoKey; secret: Uint8Array }> {
+  // Concatenate current secret + nonce to form new key material
+  const combined = new Uint8Array(currentSecret.length + nonce.length);
+  combined.set(currentSecret, 0);
+  combined.set(nonce, currentSecret.length);
+
+  // Hash the combined material to get a fixed-length 32-byte new secret
+  const hashBuffer = await crypto.subtle.digest("SHA-256", combined);
+  const newSecret = new Uint8Array(hashBuffer);
+
+  // Derive the new session key with version-tagged info string
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    newSecret,
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+
+  const salt = new TextEncoder().encode(sessionId);
+  const info = new TextEncoder().encode(`claude-relay-e2e:v${version}`);
+
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt,
+      info,
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    true, // extractable for fingerprint computation
+    ["encrypt", "decrypt"]
+  );
+
+  return { key, secret: newSecret };
+}
+
+/**
+ * Generate a random 32-byte nonce for key rotation.
+ */
+export function generateRotationNonce(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(32));
+}
+
+/**
+ * Create an encrypted key grant for an agent.
+ *
+ * The session secret is encrypted using AES-256-GCM with a wrapping key
+ * derived from a pre-shared key (PSK) between the human and agent.
+ * The PSK can be:
+ *   - Embedded in the MCP transport configuration
+ *   - Exchanged out-of-band (e.g., via the invite URL)
+ *   - Derived from the agent's MCP client ID + a secret
+ *
+ * @param sessionSecret - Raw session secret bytes to grant
+ * @param wrappingKey - AES-256-GCM key to encrypt the grant with
+ * @returns Base64-encoded encrypted grant (ciphertext + IV)
+ */
+export async function createKeyGrant(
+  sessionSecret: Uint8Array,
+  wrappingKey: CryptoKey
+): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    wrappingKey,
+    sessionSecret
+  );
+
+  // Pack IV (12 bytes) + ciphertext into a single buffer
+  const packed = new Uint8Array(12 + ciphertext.byteLength);
+  packed.set(iv, 0);
+  packed.set(new Uint8Array(ciphertext), 12);
+
+  return bufferToBase64(packed.buffer);
+}
+
+/**
+ * Decrypt a key grant to recover the session secret.
+ *
+ * @param encryptedGrant - Base64-encoded encrypted grant from createKeyGrant
+ * @param wrappingKey - The same AES-256-GCM wrapping key used to create the grant
+ * @returns The raw session secret bytes
+ */
+export async function decryptKeyGrant(
+  encryptedGrant: string,
+  wrappingKey: CryptoKey
+): Promise<Uint8Array> {
+  const packed = new Uint8Array(base64ToBuffer(encryptedGrant));
+
+  // Unpack IV (first 12 bytes) + ciphertext (rest)
+  const iv = packed.slice(0, 12);
+  const ciphertext = packed.slice(12);
+
+  const plaintext = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    wrappingKey,
+    ciphertext
+  );
+
+  return new Uint8Array(plaintext);
+}
+
+/**
+ * Derive a wrapping key from a pre-shared key string and agent ID.
+ * Used to encrypt/decrypt key grants for a specific agent.
+ *
+ * @param psk - Pre-shared key (e.g., from MCP config or invite URL)
+ * @param agentId - Agent identifier for domain separation
+ * @returns AES-256-GCM wrapping key
+ */
+export async function deriveWrappingKey(
+  psk: string,
+  agentId: string
+): Promise<CryptoKey> {
+  const pskBytes = new TextEncoder().encode(psk);
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    pskBytes,
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+
+  const salt = new TextEncoder().encode(agentId);
+  const info = new TextEncoder().encode("claude-relay-key-grant");
+
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt,
+      info,
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false, // non-extractable — wrapping keys should not leak
+    ["encrypt", "decrypt"]
+  );
+}
+
 // ─── Payload Detection ───────────────────────────────────────────────────────
 
 /**

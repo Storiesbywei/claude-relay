@@ -256,6 +256,9 @@ var relayCrypto = {
     var fp = await getKeyFingerprint(this._sessionKey);
     this._fingerprint = fp.short;
     this.enabled = true;
+    this._storeSecret(secret);
+    this._keyVersion = 1;
+    this._keyHistory = [];
     return toUrlSafeBase64(secret.buffer);
   },
 
@@ -273,6 +276,9 @@ var relayCrypto = {
     var fp = await getKeyFingerprint(this._sessionKey);
     this._fingerprint = fp.short;
     this.enabled = true;
+    this._storeSecret(secret);
+    this._keyVersion = 1;
+    this._keyHistory = [];
   },
 
   /**
@@ -335,5 +341,187 @@ var relayCrypto = {
     this._sessionKey = null;
     this._fingerprint = null;
     this.enabled = false;
+    this._keyVersion = 1;
+    this._keyHistory = [];
+    this._currentSecret = null;
+  },
+
+  // ─── Capability Lattice: Key Rotation ───────────────────────────────────
+
+  /** @type {number} Current key version */
+  _keyVersion: 1,
+  /** @type {Array<{version: number, key: CryptoKey}>} Key history (humans keep all versions) */
+  _keyHistory: [],
+  /** @type {Uint8Array|null} Current raw secret for key rotation */
+  _currentSecret: null,
+
+  /**
+   * Rotate the session key for an agent invite or revocation.
+   * Derives a new key version from the current secret + a random nonce.
+   *
+   * After rotation:
+   * - The new key version is used for all future messages
+   * - The old key is preserved in _keyHistory for decrypting old messages
+   * - The nonce is returned so it can be shared with participants
+   *
+   * @param {string} sessionId
+   * @param {string} reason - 'agent_invite' | 'agent_revoke' | 'manual'
+   * @returns {Promise<{nonce: string, version: number, fingerprint: string}>}
+   */
+  async rotateKey(sessionId, reason) {
+    if (!this._currentSecret || !this._sessionKey) {
+      throw new Error('Cannot rotate key: no active session key');
+    }
+
+    // Save the current key in history before rotating
+    this._keyHistory.push({
+      version: this._keyVersion,
+      key: this._sessionKey,
+    });
+
+    // Generate a random 32-byte nonce
+    var nonce = crypto.getRandomValues(new Uint8Array(32));
+
+    // Concatenate current secret + nonce
+    var combined = new Uint8Array(this._currentSecret.length + nonce.length);
+    combined.set(this._currentSecret, 0);
+    combined.set(nonce, this._currentSecret.length);
+
+    // Hash to get new 32-byte secret
+    var hashBuffer = await crypto.subtle.digest('SHA-256', combined);
+    var newSecret = new Uint8Array(hashBuffer);
+
+    // Increment version
+    this._keyVersion++;
+
+    // Derive new key with version-tagged info
+    var keyMaterial = await crypto.subtle.importKey(
+      'raw', newSecret, 'HKDF', false, ['deriveKey']
+    );
+    var salt = new TextEncoder().encode(sessionId);
+    var info = new TextEncoder().encode('claude-relay-e2e:v' + this._keyVersion);
+
+    this._sessionKey = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: salt, info: info },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt']
+    );
+
+    this._currentSecret = newSecret;
+
+    var fp = await getKeyFingerprint(this._sessionKey);
+    this._fingerprint = fp.short;
+
+    return {
+      nonce: toUrlSafeBase64(nonce.buffer),
+      version: this._keyVersion,
+      fingerprint: fp.short,
+      // The raw new secret (for creating key grants)
+      secret: newSecret,
+    };
+  },
+
+  /**
+   * Create an encrypted key grant for an agent.
+   * Encrypts the current session secret with a wrapping key derived from a PSK.
+   *
+   * @param {string} psk - Pre-shared key (e.g., from agent config)
+   * @param {string} agentId - Agent identifier
+   * @returns {Promise<string>} Base64-encoded encrypted grant
+   */
+  async createKeyGrant(psk, agentId) {
+    if (!this._currentSecret) {
+      throw new Error('Cannot create key grant: no active session');
+    }
+
+    // Derive wrapping key from PSK + agent ID
+    var pskBytes = new TextEncoder().encode(psk);
+    var wrapMaterial = await crypto.subtle.importKey(
+      'raw', pskBytes, 'HKDF', false, ['deriveKey']
+    );
+    var wrapSalt = new TextEncoder().encode(agentId);
+    var wrapInfo = new TextEncoder().encode('claude-relay-key-grant');
+
+    var wrappingKey = await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: wrapSalt, info: wrapInfo },
+      wrapMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt']
+    );
+
+    // Encrypt the session secret
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    var ciphertext = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv },
+      wrappingKey,
+      this._currentSecret
+    );
+
+    // Pack IV + ciphertext
+    var packed = new Uint8Array(12 + ciphertext.byteLength);
+    packed.set(iv, 0);
+    packed.set(new Uint8Array(ciphertext), 12);
+
+    return bufferToBase64(packed.buffer);
+  },
+
+  /**
+   * Decrypt a message that may be encrypted with an older key version.
+   * Tries the current key first, then falls back to key history.
+   *
+   * @param {string} content
+   * @param {boolean} isEncrypted
+   * @returns {Promise<{text: string, wasEncrypted: boolean, error: string|null, keyVersion: number|null}>}
+   */
+  async unsealWithHistory(content, isEncrypted) {
+    if (!isEncrypted || !this.enabled || !this._sessionKey) {
+      return { text: content, wasEncrypted: false, error: null, keyVersion: null };
+    }
+
+    var payload = parseEncryptedContent(content);
+    if (!payload) {
+      return { text: content, wasEncrypted: false, error: null, keyVersion: null };
+    }
+
+    // Try current key first
+    try {
+      var plaintext = await decryptMessage(payload, this._sessionKey);
+      return { text: plaintext, wasEncrypted: true, error: null, keyVersion: this._keyVersion };
+    } catch (e) {
+      // Current key failed — try history (newest to oldest)
+    }
+
+    // Try historical keys
+    for (var i = this._keyHistory.length - 1; i >= 0; i--) {
+      try {
+        var pt = await decryptMessage(payload, this._keyHistory[i].key);
+        return { text: pt, wasEncrypted: true, error: null, keyVersion: this._keyHistory[i].version };
+      } catch (e2) {
+        // This key didn't work either — try next
+      }
+    }
+
+    return {
+      text: '[Decryption failed — no matching key version]',
+      wasEncrypted: true,
+      error: 'No matching key version',
+      keyVersion: null,
+    };
+  },
+
+  /** Get current key version */
+  getKeyVersion() {
+    return this._keyVersion;
+  },
+
+  /**
+   * Store the current secret so we can use it for key rotation later.
+   * Called during initForCreator/initForJoiner.
+   */
+  _storeSecret(secret) {
+    this._currentSecret = new Uint8Array(secret);
   },
 };

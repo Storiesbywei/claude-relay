@@ -390,6 +390,10 @@ function startSession(sess) {
     setTimeout(function() { composerInput.focus(); }, 100);
   }
 
+  // Capability Lattice: show trust UI for signal mode creators
+  showTrustUI();
+  initTrustModal();
+
   // Announce session start to screen readers
   announceToSR('Session started: ' + sess.name + '. You can now send messages.');
 }
@@ -412,6 +416,11 @@ function endSession() {
   document.documentElement.removeAttribute('data-mode');
   var signalBanner = document.getElementById('signal-banner');
   if (signalBanner) signalBanner.style.display = 'none';
+
+  // Clear trust state
+  trustState.grants = [];
+  trustState.keyVersion = 1;
+  hideTrustUI();
 
   // Clear URL params AND fragment (which contains the encryption key)
   history.replaceState(null, '', location.pathname);
@@ -629,6 +638,24 @@ function updateEncryptionUI() {
 // --------------- Message Rendering (with decryption) ---------------
 
 async function renderMessageWithDecrypt(msg) {
+  // Detect key_rotation system events and render as boundary markers
+  if (msg.type === 'status_update' && msg.sender_name === 'system') {
+    try {
+      var rotEvent = JSON.parse(msg.content);
+      if (rotEvent && rotEvent.type === 'key_rotation') {
+        var agentId = rotEvent.trigger_agent_id || 'unknown';
+        var reason = rotEvent.reason || 'manual';
+        var version = rotEvent.version || '?';
+        insertKeyRotationBoundary(agentId, reason === 'agent_invite' ? 'invite' : 'revoke', version);
+        // Also refresh the trust grants list
+        fetchTrustGrants();
+        return; // Don't render as a normal message
+      }
+    } catch (e) {
+      // Not a key rotation event — render normally
+    }
+  }
+
   // Attempt decryption if the message is flagged as encrypted
   if (msg.encrypted && relayCrypto.enabled) {
     var result = await relayCrypto.unseal(msg.content, true);
@@ -1721,6 +1748,321 @@ function initSettings() {
       saveSetting('showOriginTags', this.checked);
     });
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Capability Lattice — Trust Agent Management
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var trustState = {
+  grants: [],      // Active trust grants for this session
+  keyVersion: 1,   // Current key version
+};
+
+/**
+ * Show the trust UI elements when in signal mode as session creator.
+ */
+function showTrustUI() {
+  if (!state.session) return;
+  // Only show trust UI for signal mode, and only for the session creator
+  if (state.session.mode !== 'signal') return;
+  if (state.session.role !== 'creator') return;
+
+  var label = document.getElementById('trust-section-label');
+  var list = document.getElementById('trust-agents-list');
+  var btn = document.getElementById('btn-trust-agent');
+  if (label) label.style.display = '';
+  if (list) list.style.display = '';
+  if (btn) btn.style.display = '';
+
+  // Load existing grants
+  fetchTrustGrants();
+}
+
+/**
+ * Hide the trust UI elements.
+ */
+function hideTrustUI() {
+  var label = document.getElementById('trust-section-label');
+  var list = document.getElementById('trust-agents-list');
+  var btn = document.getElementById('btn-trust-agent');
+  if (label) label.style.display = 'none';
+  if (list) list.style.display = 'none';
+  if (btn) btn.style.display = 'none';
+}
+
+/**
+ * Fetch active trust grants from the server.
+ */
+async function fetchTrustGrants() {
+  if (!state.session) return;
+  try {
+    var res = await fetch('/sessions/' + state.session.id + '/trust', {
+      headers: { 'Authorization': 'Bearer ' + state.session.token }
+    });
+    if (!res.ok) return;
+    var data = await res.json();
+    trustState.grants = data.grants || [];
+    trustState.keyVersion = data.key_version || 1;
+    renderTrustAgents();
+    updateKeyVersionBadge();
+  } catch (e) {
+    console.error('[trust] Failed to fetch grants:', e);
+  }
+}
+
+/**
+ * Render the trust agents list in the left rail.
+ */
+function renderTrustAgents() {
+  var list = document.getElementById('trust-agents-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (trustState.grants.length === 0) {
+    list.innerHTML = '<div style="font-size:10px;color:var(--text-dim);padding:4px 8px">No trusted agents</div>';
+    return;
+  }
+
+  for (var i = 0; i < trustState.grants.length; i++) {
+    var g = trustState.grants[i];
+    var row = document.createElement('div');
+    row.className = 'trust-agent-row';
+
+    var isActive = g.active !== false;
+    var caps = (g.capabilities || []).join(', ');
+    var badgeClass = isActive ? 'level-2' : 'revoked';
+    var badgeLabel = isActive ? 'L2' : 'REVOKED';
+
+    row.innerHTML =
+      '<span class="trust-agent-shield" title="Trusted agent">' +
+        (isActive ? '&#x1F6E1;' : '&#x1F6AB;') +
+      '</span>' +
+      '<span class="trust-agent-name">' + escapeHtml(g.agent_id) + '</span>' +
+      '<span class="trust-agent-badge ' + badgeClass + '">' + badgeLabel + '</span>' +
+      (isActive ? '<button class="trust-revoke-btn" data-agent="' + escapeHtml(g.agent_id) + '" title="Revoke trust">&#x2716;</button>' : '');
+
+    list.appendChild(row);
+  }
+
+  // Bind revoke buttons
+  var revokeBtns = list.querySelectorAll('.trust-revoke-btn');
+  for (var j = 0; j < revokeBtns.length; j++) {
+    revokeBtns[j].addEventListener('click', function() {
+      var agentId = this.getAttribute('data-agent');
+      revokeAgentTrust(agentId);
+    });
+  }
+}
+
+/**
+ * Update the key version badge in the encryption pill.
+ */
+function updateKeyVersionBadge() {
+  var badge = document.getElementById('key-version-badge');
+  if (!badge) return;
+  if (relayCrypto.enabled && trustState.keyVersion > 1) {
+    badge.textContent = 'v' + trustState.keyVersion;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+/**
+ * Open the trust modal for granting trust to a new agent.
+ */
+function openTrustModal() {
+  var backdrop = document.getElementById('trust-modal-backdrop');
+  var modal = document.getElementById('trust-modal');
+  var error = document.getElementById('trust-modal-error');
+  if (backdrop) backdrop.style.display = '';
+  if (modal) modal.style.display = '';
+  if (error) error.textContent = '';
+  // Clear inputs
+  var agentInput = document.getElementById('trust-agent-id');
+  var pskInput = document.getElementById('trust-agent-psk');
+  if (agentInput) agentInput.value = '';
+  if (pskInput) pskInput.value = '';
+}
+
+/**
+ * Close the trust modal.
+ */
+function closeTrustModal() {
+  var backdrop = document.getElementById('trust-modal-backdrop');
+  var modal = document.getElementById('trust-modal');
+  if (backdrop) backdrop.style.display = 'none';
+  if (modal) modal.style.display = 'none';
+}
+
+/**
+ * Grant trust to an agent. Performs key rotation, creates encrypted key grant,
+ * and sends the trust grant to the server.
+ */
+async function grantAgentTrust() {
+  var agentId = (document.getElementById('trust-agent-id') || {}).value || '';
+  var psk = (document.getElementById('trust-agent-psk') || {}).value || '';
+  var errorEl = document.getElementById('trust-modal-error');
+
+  if (!agentId.trim()) {
+    if (errorEl) errorEl.textContent = 'Agent name/ID is required.';
+    return;
+  }
+  if (!psk.trim()) {
+    if (errorEl) errorEl.textContent = 'Pre-shared key is required.';
+    return;
+  }
+  if (!state.session || !relayCrypto.enabled) {
+    if (errorEl) errorEl.textContent = 'No active encrypted session.';
+    return;
+  }
+
+  // Gather capabilities
+  var caps = ['read']; // always
+  if ((document.getElementById('trust-cap-write') || {}).checked) caps.push('write');
+  if ((document.getElementById('trust-cap-auto-approve') || {}).checked) caps.push('auto_approve');
+  if ((document.getElementById('trust-cap-bridge-nostr') || {}).checked) caps.push('bridge_nostr');
+  if ((document.getElementById('trust-cap-bridge-solid') || {}).checked) caps.push('bridge_solid');
+
+  try {
+    // 1. Rotate the key (forward secrecy at invite boundary)
+    var rotation = await relayCrypto.rotateKey(state.session.id, 'agent_invite');
+
+    // 2. Create encrypted key grant for the agent
+    var encryptedKey = await relayCrypto.createKeyGrant(psk, agentId);
+
+    // 3. Send to server
+    var res = await fetch('/sessions/' + state.session.id + '/trust', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + state.session.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        agent_id: agentId,
+        capabilities: caps,
+        encrypted_key: encryptedKey,
+        key_version: rotation.version,
+        rotation_nonce: rotation.nonce,
+      }),
+    });
+
+    if (!res.ok) {
+      var errData = await res.json().catch(function() { return {}; });
+      throw new Error(errData.error || 'Server error ' + res.status);
+    }
+
+    var result = await res.json();
+
+    // Update local state
+    trustState.keyVersion = rotation.version;
+    updateKeyVersionBadge();
+
+    // Update fingerprint display
+    var fpEl = document.getElementById('key-fingerprint');
+    if (fpEl) fpEl.textContent = rotation.fingerprint;
+
+    closeTrustModal();
+    fetchTrustGrants();
+
+    // Insert a local key rotation boundary in the timeline
+    insertKeyRotationBoundary(agentId, 'invite', rotation.version);
+
+  } catch (e) {
+    if (errorEl) errorEl.textContent = e.message || 'Failed to grant trust.';
+    console.error('[trust] Grant failed:', e);
+  }
+}
+
+/**
+ * Revoke trust from an agent.
+ */
+async function revokeAgentTrust(agentId) {
+  if (!state.session || !relayCrypto.enabled) return;
+  if (!confirm('Revoke trust for agent "' + agentId + '"? A key rotation will occur and the agent will lose access to future messages.')) {
+    return;
+  }
+
+  try {
+    // Rotate key first
+    var rotation = await relayCrypto.rotateKey(state.session.id, 'agent_revoke');
+
+    // Send revocation to server
+    var res = await fetch('/sessions/' + state.session.id + '/trust/' + encodeURIComponent(agentId), {
+      method: 'DELETE',
+      headers: {
+        'Authorization': 'Bearer ' + state.session.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        rotation_nonce: rotation.nonce,
+      }),
+    });
+
+    if (!res.ok) {
+      var errData = await res.json().catch(function() { return {}; });
+      throw new Error(errData.error || 'Server error ' + res.status);
+    }
+
+    trustState.keyVersion = rotation.version;
+    updateKeyVersionBadge();
+
+    var fpEl = document.getElementById('key-fingerprint');
+    if (fpEl) fpEl.textContent = rotation.fingerprint;
+
+    fetchTrustGrants();
+
+    // Insert a local key rotation boundary in the timeline
+    insertKeyRotationBoundary(agentId, 'revoke', rotation.version);
+
+  } catch (e) {
+    console.error('[trust] Revoke failed:', e);
+    alert('Failed to revoke trust: ' + (e.message || 'Unknown error'));
+  }
+}
+
+/**
+ * Insert a key rotation boundary marker in the timeline.
+ */
+function insertKeyRotationBoundary(agentId, reason, version) {
+  var chronicle = document.getElementById('chronicle');
+  if (!chronicle) return;
+
+  var boundary = document.createElement('div');
+  boundary.className = 'key-rotation-boundary';
+
+  var label = reason === 'invite'
+    ? 'Agent "' + escapeHtml(agentId) + '" invited — key rotated to v' + version
+    : 'Agent "' + escapeHtml(agentId) + '" revoked — key rotated to v' + version;
+
+  boundary.innerHTML =
+    '<span class="rotation-icon">&#x1F511;</span>' +
+    '<span class="rotation-label">' + label + '</span>';
+
+  chronicle.appendChild(boundary);
+
+  // Auto-scroll if not manually scrolled up
+  if (!state.userScrolled) {
+    chronicle.scrollTop = chronicle.scrollHeight;
+  }
+}
+
+/**
+ * Initialize trust modal event listeners.
+ */
+function initTrustModal() {
+  var btnOpen = document.getElementById('btn-trust-agent');
+  var btnClose = document.getElementById('trust-modal-close');
+  var btnCancel = document.getElementById('trust-modal-cancel');
+  var btnGrant = document.getElementById('trust-modal-grant');
+  var backdrop = document.getElementById('trust-modal-backdrop');
+
+  if (btnOpen) btnOpen.addEventListener('click', openTrustModal);
+  if (btnClose) btnClose.addEventListener('click', closeTrustModal);
+  if (btnCancel) btnCancel.addEventListener('click', closeTrustModal);
+  if (btnGrant) btnGrant.addEventListener('click', grantAgentTrust);
+  if (backdrop) backdrop.addEventListener('click', closeTrustModal);
 }
 
 document.addEventListener('DOMContentLoaded', init);

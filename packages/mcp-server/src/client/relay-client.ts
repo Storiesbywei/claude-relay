@@ -88,11 +88,12 @@ export async function getSessionInfo(
 export async function sendMessage(
   sessionId: string,
   token: string,
-  payload: RelayMessagePayload
+  payload: RelayMessagePayload,
+  extraHeaders?: Record<string, string>
 ): Promise<{ message_id: string; sequence: number; received_at: string }> {
   return request(`/relay/${sessionId}`, {
     method: "POST",
-    headers: authHeaders(token),
+    headers: { ...authHeaders(token), ...extraHeaders },
     body: JSON.stringify(payload),
   });
 }

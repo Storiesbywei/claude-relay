@@ -1888,3 +1888,247 @@ html[data-mode="signal"] .folio-entry.self-message .entry-card {
 html[data-mode="signal"] .mast-title {
   font-size: 13px;
 }
+
+/* ===== Capability Lattice — Trust UI ===== */
+
+/* Key version badge in encryption pill */
+.key-version-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  font-family: var(--font-mono, 'Space Mono', monospace);
+  background: rgba(125, 211, 252, 0.15);
+  color: var(--teal, #5eead4);
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+
+/* Trust agents list in left rail */
+.trust-agents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.trust-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(94, 234, 212, 0.06);
+  border: 1px solid rgba(94, 234, 212, 0.12);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.trust-agent-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text, #e2e8f0);
+}
+
+.trust-agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.trust-agent-badge.level-2 {
+  background: rgba(94, 234, 212, 0.15);
+  color: var(--teal, #5eead4);
+}
+
+.trust-agent-badge.revoked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  text-decoration: line-through;
+}
+
+.trust-agent-shield {
+  font-size: 12px;
+}
+
+.trust-revoke-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim, #64748b);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.trust-revoke-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.trust-invite-btn {
+  border: 1px dashed rgba(94, 234, 212, 0.3) !important;
+  color: var(--teal, #5eead4) !important;
+}
+
+.trust-invite-btn:hover {
+  border-color: rgba(94, 234, 212, 0.5) !important;
+  background: rgba(94, 234, 212, 0.05) !important;
+}
+
+/* Trust modal */
+.trust-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 999;
+}
+
+.trust-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, 90vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--vellum, #0d1424);
+  border: 1px solid var(--border, #1e293b);
+  border-radius: 12px;
+  z-index: 1000;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+}
+
+.trust-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border, #1e293b);
+}
+
+.trust-modal-header h2 {
+  font-family: var(--font-serif, 'Cormorant Garamond', serif);
+  font-size: 18px;
+  color: var(--text, #e2e8f0);
+  margin: 0;
+}
+
+.trust-modal-body {
+  padding: 16px 20px;
+}
+
+.trust-modal-desc {
+  font-size: 12px;
+  color: var(--text-dim, #64748b);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.trust-caps-section {
+  margin: 12px 0;
+}
+
+.trust-cap-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text, #e2e8f0);
+  cursor: pointer;
+}
+
+.trust-cap-row input[type="checkbox"] {
+  accent-color: var(--teal, #5eead4);
+}
+
+.trust-modal-warning {
+  margin: 12px 0;
+  padding: 10px 12px;
+  background: rgba(232, 160, 32, 0.08);
+  border: 1px solid rgba(232, 160, 32, 0.2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--amber, #e8a020);
+  line-height: 1.5;
+}
+
+.trust-modal-error {
+  color: #ef4444;
+  font-size: 11px;
+  min-height: 16px;
+  margin-top: 8px;
+}
+
+.trust-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border, #1e293b);
+}
+
+.trust-grant-btn {
+  background: rgba(94, 234, 212, 0.15) !important;
+  border: 1px solid rgba(94, 234, 212, 0.3) !important;
+  color: var(--teal, #5eead4) !important;
+}
+
+.trust-grant-btn:hover {
+  background: rgba(94, 234, 212, 0.25) !important;
+}
+
+/* Timeline: key rotation boundary marker */
+.key-rotation-boundary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  margin: 8px 0;
+  font-size: 11px;
+  color: var(--teal, #5eead4);
+  opacity: 0.7;
+}
+
+.key-rotation-boundary::before,
+.key-rotation-boundary::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(94, 234, 212, 0.3), transparent);
+}
+
+.key-rotation-boundary .rotation-icon {
+  font-size: 14px;
+}
+
+.key-rotation-boundary .rotation-label {
+  white-space: nowrap;
+  font-family: var(--font-mono, 'Space Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+/* Trusted agent sender badge in messages */
+.sender-trust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--teal, #5eead4);
+  border-radius: 3px;
+  vertical-align: middle;
+}

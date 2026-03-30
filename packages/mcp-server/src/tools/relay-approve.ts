@@ -14,6 +14,20 @@ import {
   fromUrlSafeBase64,
 } from "@claude-relay/shared";
 
+/**
+ * Check if a session has auto-approve capability (trusted agent with
+ * the auto_approve capability). Used by relay_send to bypass the
+ * approval queue for trusted agents.
+ */
+export function hasAutoApprove(sessionId: string): boolean {
+  const session = getActiveSession(sessionId);
+  if (!session) return false;
+  return (
+    (session.trust_level ?? 0) >= 2 &&
+    (session.capabilities ?? []).includes("auto_approve")
+  );
+}
+
 export function registerApproveTool(server: McpServer) {
   server.tool(
     "relay_approve",

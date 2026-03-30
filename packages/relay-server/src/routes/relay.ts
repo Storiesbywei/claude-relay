@@ -1,7 +1,17 @@
 import { Hono } from "hono";
 import { RelayMessagePayloadSchema, scanAndGateMessage } from "@claude-relay/shared";
-import type { StoredMessage } from "@claude-relay/shared";
-import { addMessage, getMessages, getSession, getParticipantNames, subscribe } from "../store/sqlite.js";
+import type { StoredMessage, KeyRotationEvent } from "@claude-relay/shared";
+import {
+  addMessage,
+  getMessages,
+  getSession,
+  getParticipantNames,
+  subscribe,
+  validateTrustToken,
+  getActiveTrustGrantsForSession,
+  recordKeyRotation,
+  getSessionKeyVersion,
+} from "../store/sqlite.js";
 import { streamSSE } from "hono/streaming";
 import { bridgeMessageToNostr } from "../nostr/bridge.js";
 import { bridgeMessageToSolid } from "../solid/bridge.js";
@@ -34,9 +44,27 @@ relayRoutes.post("/:session_id", async (c) => {
     return c.json({ error: "Signal mode requires all messages to be encrypted" }, 400);
   }
 
-  // 2. Reject messages from MCP origin (signal mode is human-to-human only)
+  // 2. Reject messages from MCP origin UNLESS the agent has a valid trust token.
+  //    Trusted agents (Level 2) are explicitly invited by a human and hold the
+  //    session key — their messages are encrypted just like human messages.
   if (isSignalMode && parsed.data.origin === 'mcp') {
-    return c.json({ error: "MCP tools are not allowed in signal mode" }, 403);
+    // Check for trust token in X-Trust-Token header
+    const trustTokenHeader = c.req.header("X-Trust-Token");
+    let trustedAgent = false;
+    if (trustTokenHeader) {
+      const trustInfo = validateTrustToken(trustTokenHeader);
+      if (trustInfo && trustInfo.session_id === sessionId) {
+        const hasCap = trustInfo.capabilities.includes('write');
+        if (hasCap) {
+          trustedAgent = true;
+          // Tag the message with the agent identity for audit trail
+          (parsed.data as any)._trusted_agent_id = trustInfo.agent_id;
+        }
+      }
+    }
+    if (!trustedAgent) {
+      return c.json({ error: "MCP tools are not allowed in signal mode without a valid trust grant" }, 403);
+    }
   }
 
   // Verify encrypted payloads actually contain valid encrypted structure

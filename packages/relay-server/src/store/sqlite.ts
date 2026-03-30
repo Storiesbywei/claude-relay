@@ -144,6 +144,66 @@ for (const sql of migrations) {
   }
 }
 
+// ─── Capability Lattice: trust_grants table ─────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trust_grants (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL,
+    agent_id        TEXT NOT NULL,
+    granted_by      TEXT NOT NULL,
+    granted_at      TEXT NOT NULL,
+    key_version     INTEGER NOT NULL,
+    level           INTEGER NOT NULL DEFAULT 2,
+    capabilities    TEXT NOT NULL DEFAULT '["read"]',
+    encrypted_key   TEXT NOT NULL,
+    active          INTEGER NOT NULL DEFAULT 1,
+    revoked_at      TEXT,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    UNIQUE(session_id, agent_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_trust_grants_session
+    ON trust_grants(session_id, active);
+
+  CREATE INDEX IF NOT EXISTS idx_trust_grants_agent
+    ON trust_grants(agent_id, active);
+
+  CREATE TABLE IF NOT EXISTS trust_tokens (
+    token       TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL,
+    agent_id    TEXT NOT NULL,
+    capabilities TEXT NOT NULL DEFAULT '["read"]',
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_trust_tokens_session
+    ON trust_tokens(session_id);
+
+  CREATE TABLE IF NOT EXISTS key_rotations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    version     INTEGER NOT NULL,
+    reason      TEXT NOT NULL,
+    nonce       TEXT NOT NULL,
+    trigger_agent_id TEXT,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    UNIQUE(session_id, version)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_key_rotations_session
+    ON key_rotations(session_id);
+`);
+
+// Add key_version column to sessions if it doesn't exist
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN key_version INTEGER NOT NULL DEFAULT 1`);
+} catch {
+  // Column already exists
+}
+
 // Sync queue table — always safe with CREATE TABLE IF NOT EXISTS
 db.exec(`
   CREATE TABLE IF NOT EXISTS solid_sync_queue (
@@ -363,6 +423,82 @@ const stmts = {
     SELECT id, solid_config, pod_synced_sequence
     FROM sessions
     WHERE solid_config IS NOT NULL
+  `),
+
+  // -------------------------------------------------------------------------
+  // Capability Lattice: trust grants + tokens + key rotations
+  // -------------------------------------------------------------------------
+
+  insertTrustGrant: db.prepare(`
+    INSERT OR REPLACE INTO trust_grants
+      (session_id, agent_id, granted_by, granted_at, key_version, level, capabilities, encrypted_key, active, revoked_at)
+    VALUES ($session_id, $agent_id, $granted_by, $granted_at, $key_version, $level, $capabilities, $encrypted_key, 1, NULL)
+  `),
+
+  getTrustGrant: db.prepare(`
+    SELECT * FROM trust_grants
+    WHERE session_id = $session_id AND agent_id = $agent_id AND active = 1
+  `),
+
+  getTrustGrantsForSession: db.prepare(`
+    SELECT * FROM trust_grants
+    WHERE session_id = $session_id
+    ORDER BY granted_at ASC
+  `),
+
+  getActiveTrustGrantsForSession: db.prepare(`
+    SELECT * FROM trust_grants
+    WHERE session_id = $session_id AND active = 1
+    ORDER BY granted_at ASC
+  `),
+
+  revokeTrustGrant: db.prepare(`
+    UPDATE trust_grants
+    SET active = 0, revoked_at = $revoked_at
+    WHERE session_id = $session_id AND agent_id = $agent_id AND active = 1
+  `),
+
+  insertTrustToken: db.prepare(`
+    INSERT OR REPLACE INTO trust_tokens
+      (token, session_id, agent_id, capabilities, created_at, expires_at)
+    VALUES ($token, $session_id, $agent_id, $capabilities, $created_at, $expires_at)
+  `),
+
+  getTrustToken: db.prepare(`
+    SELECT * FROM trust_tokens WHERE token = $token
+  `),
+
+  getTrustTokenByAgent: db.prepare(`
+    SELECT * FROM trust_tokens
+    WHERE session_id = $session_id AND agent_id = $agent_id
+  `),
+
+  deleteTrustToken: db.prepare(`
+    DELETE FROM trust_tokens WHERE session_id = $session_id AND agent_id = $agent_id
+  `),
+
+  deleteExpiredTrustTokens: db.prepare(`
+    DELETE FROM trust_tokens WHERE expires_at < $now
+  `),
+
+  insertKeyRotation: db.prepare(`
+    INSERT INTO key_rotations
+      (session_id, version, reason, nonce, trigger_agent_id, created_at)
+    VALUES ($session_id, $version, $reason, $nonce, $trigger_agent_id, $created_at)
+  `),
+
+  getKeyRotationsForSession: db.prepare(`
+    SELECT * FROM key_rotations
+    WHERE session_id = $session_id
+    ORDER BY version ASC
+  `),
+
+  getSessionKeyVersion: db.prepare(`
+    SELECT key_version FROM sessions WHERE id = $session_id
+  `),
+
+  setSessionKeyVersion: db.prepare(`
+    UPDATE sessions SET key_version = $version WHERE id = $session_id
   `),
 
   // Solid bindings (Level 3 federation)
@@ -806,6 +942,150 @@ export function getSolidEnabledSessions(): { sessionId: string; config: SolidExp
 
 // Export the raw db instance for use by sync-queue.ts and other modules
 export { db };
+
+// ---------------------------------------------------------------------------
+// Capability Lattice — trust grant store functions
+// ---------------------------------------------------------------------------
+
+import type { StoredTrustGrant, TrustToken, AgentCapability, TrustLevel } from "@claude-relay/shared";
+
+/** Insert or replace a trust grant for an agent in a session */
+export function upsertTrustGrant(grant: {
+  session_id: string;
+  agent_id: string;
+  granted_by: string;
+  key_version: number;
+  level: TrustLevel;
+  capabilities: AgentCapability[];
+  encrypted_key: string;
+}): void {
+  const now = new Date().toISOString();
+  stmts.insertTrustGrant.run({
+    $session_id: grant.session_id,
+    $agent_id: grant.agent_id,
+    $granted_by: grant.granted_by,
+    $granted_at: now,
+    $key_version: grant.key_version,
+    $level: grant.level,
+    $capabilities: JSON.stringify(grant.capabilities),
+    $encrypted_key: grant.encrypted_key,
+  });
+}
+
+/** Get the active trust grant for an agent in a session */
+export function getTrustGrant(sessionId: string, agentId: string): StoredTrustGrant | undefined {
+  const row = stmts.getTrustGrant.get({ $session_id: sessionId, $agent_id: agentId }) as StoredTrustGrant | null;
+  return row ?? undefined;
+}
+
+/** Get all trust grants (active + revoked) for a session */
+export function getTrustGrantsForSession(sessionId: string): StoredTrustGrant[] {
+  return stmts.getTrustGrantsForSession.all({ $session_id: sessionId }) as StoredTrustGrant[];
+}
+
+/** Get only active trust grants for a session */
+export function getActiveTrustGrantsForSession(sessionId: string): StoredTrustGrant[] {
+  return stmts.getActiveTrustGrantsForSession.all({ $session_id: sessionId }) as StoredTrustGrant[];
+}
+
+/** Revoke a trust grant. Returns true if a grant was actually revoked. */
+export function revokeTrustGrant(sessionId: string, agentId: string): boolean {
+  const now = new Date().toISOString();
+  const result = stmts.revokeTrustGrant.run({
+    $session_id: sessionId,
+    $agent_id: agentId,
+    $revoked_at: now,
+  });
+  // Also delete the trust token
+  stmts.deleteTrustToken.run({ $session_id: sessionId, $agent_id: agentId });
+  return result.changes > 0;
+}
+
+/** Issue a trust token for a trusted agent */
+export function issueTrustToken(params: {
+  session_id: string;
+  agent_id: string;
+  capabilities: AgentCapability[];
+  expires_at: string;
+}): string {
+  const token = crypto.randomUUID();
+  const now = new Date().toISOString();
+  stmts.insertTrustToken.run({
+    $token: token,
+    $session_id: params.session_id,
+    $agent_id: params.agent_id,
+    $capabilities: JSON.stringify(params.capabilities),
+    $created_at: now,
+    $expires_at: params.expires_at,
+  });
+  return token;
+}
+
+/** Validate a trust token and return its metadata, or undefined if invalid/expired */
+export function validateTrustToken(token: string): TrustToken | undefined {
+  const row = stmts.getTrustToken.get({ $token: token }) as {
+    token: string;
+    session_id: string;
+    agent_id: string;
+    capabilities: string;
+    created_at: string;
+    expires_at: string;
+  } | null;
+
+  if (!row) return undefined;
+
+  // Check expiry
+  if (new Date(row.expires_at) < new Date()) {
+    // Expired — clean up
+    stmts.deleteTrustToken.run({ $session_id: row.session_id, $agent_id: row.agent_id });
+    return undefined;
+  }
+
+  return {
+    token: row.token,
+    agent_id: row.agent_id,
+    session_id: row.session_id,
+    capabilities: JSON.parse(row.capabilities) as AgentCapability[],
+    expires_at: row.expires_at,
+  };
+}
+
+/** Record a key rotation event */
+export function recordKeyRotation(params: {
+  session_id: string;
+  version: number;
+  reason: 'agent_invite' | 'agent_revoke' | 'manual';
+  nonce: string;
+  trigger_agent_id?: string;
+}): void {
+  const now = new Date().toISOString();
+  stmts.insertKeyRotation.run({
+    $session_id: params.session_id,
+    $version: params.version,
+    $reason: params.reason,
+    $nonce: params.nonce,
+    $trigger_agent_id: params.trigger_agent_id ?? null,
+    $created_at: now,
+  });
+  // Update session key version
+  stmts.setSessionKeyVersion.run({
+    $session_id: params.session_id,
+    $version: params.version,
+  });
+}
+
+/** Get the current key version for a session */
+export function getSessionKeyVersion(sessionId: string): number {
+  const row = stmts.getSessionKeyVersion.get({ $session_id: sessionId }) as { key_version: number } | null;
+  return row?.key_version ?? 1;
+}
+
+/** Clean up expired trust tokens (called by TTL sweep) */
+export function sweepExpiredTrustTokens(): number {
+  const now = new Date().toISOString();
+  const result = stmts.deleteExpiredTrustTokens.run({ $now: now });
+  return result.changes;
+}
 
 // ---------------------------------------------------------------------------
 // Solid bindings (Level 3 federation)

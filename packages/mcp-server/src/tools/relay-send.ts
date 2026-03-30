@@ -1,8 +1,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { MESSAGE_TYPES } from "@claude-relay/shared";
+import {
+  MESSAGE_TYPES,
+  deriveSessionKey,
+  encryptMessage,
+  fromUrlSafeBase64,
+} from "@claude-relay/shared";
 import { stageMessage, generatePreview } from "../approval/queue.js";
+import { hasAutoApprove } from "./relay-approve.js";
 import { getActiveSession } from "../state.js";
+import * as client from "../client/relay-client.js";
 
 export function registerSendTool(server: McpServer) {
   server.tool(
@@ -71,7 +78,7 @@ export function registerSendTool(server: McpServer) {
         };
       }
 
-      const pending = stageMessage(session_id, {
+      const payload = {
         type: message_type,
         title,
         content,
@@ -81,8 +88,79 @@ export function registerSendTool(server: McpServer) {
           project || stack || branch
             ? { project, stack, branch }
             : undefined,
-      });
+      };
 
+      // ─── Auto-approve bypass for trusted agents ──────────────
+      // If this agent has the auto_approve capability (Level 2 trusted),
+      // skip the approval queue entirely — send directly.
+      // This is the dangerouslySkipPermissions equivalent, granted
+      // explicitly by a human via the Capability Lattice.
+      if (hasAutoApprove(session_id)) {
+        try {
+          let payloadToSend = { ...payload, origin: 'mcp' as const };
+          let encrypted = false;
+
+          if (session.encryption_secret) {
+            try {
+              const secretBuffer = fromUrlSafeBase64(session.encryption_secret);
+              const secret = new Uint8Array(secretBuffer);
+              const key = await deriveSessionKey(secret, session_id);
+              const encPayload = await encryptMessage(payloadToSend.content, key);
+              payloadToSend = {
+                ...payloadToSend,
+                content: JSON.stringify(encPayload),
+                encrypted: true,
+              } as any;
+              encrypted = true;
+            } catch (encErr: any) {
+              console.error(`[relay-mcp] Auto-approve encryption failed: ${encErr.message}`);
+            }
+          }
+
+          // Include trust token in the request headers
+          const extraHeaders: Record<string, string> = {};
+          if (session.trust_token) {
+            extraHeaders["X-Trust-Token"] = session.trust_token;
+          }
+
+          const result = await client.sendMessage(
+            session_id,
+            session.token,
+            payloadToSend,
+            extraHeaders
+          );
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: [
+                  `Auto-approved and sent (trusted agent bypass).`,
+                  ``,
+                  `Message ID: ${result.message_id}`,
+                  `Sequence: ${result.sequence}`,
+                  `Title: "${title}"`,
+                  encrypted ? `Encryption: E2E encrypted` : `Encryption: plaintext`,
+                  `Trust: Level 2 (auto_approve)`,
+                ].join("\n"),
+              },
+            ],
+          };
+        } catch (err: any) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Auto-approve send failed: ${err.message}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+
+      // ─── Normal path: stage for approval ──────────────────────
+      const pending = stageMessage(session_id, payload);
       const preview = generatePreview(pending);
 
       return {
