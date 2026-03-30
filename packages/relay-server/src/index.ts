@@ -13,6 +13,8 @@ import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { sweepExpiredSessions } from "./store/memory.js";
 import { RELAY_PORT, LIMITS, RELAY_INFO } from "@claude-relay/shared";
 import { handleOpen, handleClose, handleMessage, getNostrStats, setCanonicalRelayUrl } from "./nostr/handler.js";
+import { solidRoutes } from "./routes/solid.js";
+import { clearSessionCache } from "./solid/auth.js";
 
 const app = new Hono();
 
@@ -66,6 +68,10 @@ app.use("/relay/:session_id", authMiddleware);
 app.use("/relay/:session_id", rateLimitMiddleware);
 app.route("/relay", relayRoutes);
 
+// Solid Pod export routes (require auth)
+app.use("/solid/:session_id/*", authMiddleware);
+app.route("/solid", solidRoutes);
+
 // Dashboard (static files)
 const publicDir = resolve(__dirname, "../public");
 app.use("/*", async (c, next) => {
@@ -94,6 +100,7 @@ const sweepInterval = setInterval(() => {
 // Graceful shutdown
 const shutdown = () => {
   clearInterval(sweepInterval);
+  clearSessionCache();
   console.log("\n[relay] Shutting down...");
   process.exit(0);
 };
