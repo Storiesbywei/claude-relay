@@ -34,6 +34,15 @@ export const MESSAGE_TYPES = [
   "status_update",  // worker status (idle, reading, writing, testing)
 ] as const;
 
+// Federation defaults — deny-by-default for external Nostr relays and Solid Pods
+export const FEDERATION_DEFAULTS = {
+  // Allowlists — empty = deny all external federation
+  NOSTR_RELAY_ALLOWLIST: [] as string[],   // e.g., ["wss://relay.damus.io", "wss://nos.lol"]
+  SOLID_POD_ALLOWLIST: [] as string[],     // e.g., ["https://pod.inrupt.com", "http://localhost:3001"]
+  // Whether to allow federation at all
+  FEDERATION_ENABLED: false,
+} as const;
+
 // Patterns that suggest sensitive content
 // Nostr tag name used to scope events to a relay session
 export const SESSION_TAG = "session";
