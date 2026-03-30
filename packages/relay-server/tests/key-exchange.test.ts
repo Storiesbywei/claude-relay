@@ -19,7 +19,7 @@ import {
   getKeyFingerprint,
 } from "@claude-relay/shared";
 
-const BASE = "http://localhost:4191";
+const BASE = "http://localhost:4190";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -207,7 +207,7 @@ describe("URL fragment security", () => {
     const secretB64 = toUrlSafeBase64(secret.buffer);
 
     // The invite URL would be:
-    // http://localhost:4191/dashboard?session=SESSION_ID&invite=INVITE_TOKEN#key=SECRET
+    // http://localhost:4190/dashboard?session=SESSION_ID&invite=INVITE_TOKEN#key=SECRET
     // The #key=SECRET part NEVER reaches the server (per HTTP spec)
 
     // Verify the server has no knowledge of the secret by checking the session info

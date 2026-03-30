@@ -20,7 +20,7 @@ import {
   encryptMessage,
 } from "@claude-relay/shared";
 
-const BASE = "http://localhost:4191";
+const BASE = "http://localhost:4190";
 
 // ---------------------------------------------------------------------------
 // Helpers
