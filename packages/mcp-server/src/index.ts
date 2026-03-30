@@ -9,6 +9,7 @@ import { registerWorkspaceTool } from "./tools/relay-workspace.js";
 import { registerNostrTools } from "./tools/relay-nostr.js";
 import { registerNostrPoolTool } from "./tools/relay-nostr-pool.js";
 import { registerSolidExportTool } from "./tools/relay-solid.js";
+import { registerSecurityTool } from "./tools/relay-security.js";
 import { loadState } from "./state.js";
 
 const server = new McpServer({
@@ -16,7 +17,7 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-// Register all 10 tools
+// Register all 11 tools
 registerSessionTools(server);      // relay_create_session, relay_join_session
 registerSendTool(server);          // relay_send
 registerApproveTool(server);       // relay_approve
@@ -26,6 +27,7 @@ registerWorkspaceTool(server);     // relay_share_workspace
 registerNostrTools(server);        // relay_nostr_connect
 registerNostrPoolTool(server);     // relay_nostr_pool
 registerSolidExportTool(server);   // relay_export_pod
+registerSecurityTool(server);      // relay_security_status
 
 // Load persisted session state, then connect
 await loadState();
