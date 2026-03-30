@@ -1084,6 +1084,114 @@ nostrBadge.addEventListener("click", () => {
   }
 });
 
+// ========== SOLID POD EXPORT ==========
+
+const solidModal = $("#solid-export-modal");
+const solidStatus = $("#solid-export-status");
+
+function showSolidExportModal() {
+  if (!state.sessionId) {
+    showToast("No active session to export");
+    return;
+  }
+  // Restore saved config (except secret)
+  try {
+    const saved = JSON.parse(localStorage.getItem("relay-solid-config") || "{}");
+    if (saved.pod_url) $("#solid-pod-url").value = saved.pod_url;
+    if (saved.oidc_issuer) $("#solid-oidc-issuer").value = saved.oidc_issuer;
+    if (saved.client_id) $("#solid-client-id").value = saved.client_id;
+    if (saved.container_path) $("#solid-container-path").value = saved.container_path;
+  } catch { /* no saved config */ }
+  solidStatus.textContent = "";
+  solidStatus.className = "modal-status";
+  solidModal.style.display = "flex";
+}
+
+function hideSolidExportModal() {
+  solidModal.style.display = "none";
+  solidStatus.textContent = "";
+  solidStatus.className = "modal-status";
+}
+
+async function exportToPod() {
+  const podUrl = $("#solid-pod-url").value.trim();
+  const oidcIssuer = $("#solid-oidc-issuer").value.trim();
+  const clientId = $("#solid-client-id").value.trim();
+  const clientSecret = $("#solid-client-secret").value.trim();
+  const containerPath = $("#solid-container-path").value.trim() || undefined;
+
+  if (!podUrl || !oidcIssuer || !clientId || !clientSecret) {
+    solidStatus.textContent = "All fields except Container Path are required.";
+    solidStatus.className = "modal-status error";
+    return;
+  }
+
+  // Save config to localStorage (minus secret)
+  localStorage.setItem("relay-solid-config", JSON.stringify({
+    pod_url: podUrl,
+    oidc_issuer: oidcIssuer,
+    client_id: clientId,
+    container_path: containerPath || "",
+  }));
+
+  solidStatus.textContent = "Exporting...";
+  solidStatus.className = "modal-status";
+  $("#btn-solid-export").disabled = true;
+
+  try {
+    const res = await fetch(`${API}/solid/${state.sessionId}/export`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${state.myToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pod_url: podUrl,
+        oidc_issuer: oidcIssuer,
+        client_id: clientId,
+        client_secret: clientSecret,
+        container_path: containerPath,
+      }),
+    });
+
+    const body = await res.json();
+
+    if (!res.ok) {
+      solidStatus.textContent = `Export failed: ${body.error || `HTTP ${res.status}`}`;
+      solidStatus.className = "modal-status error";
+      return;
+    }
+
+    solidStatus.textContent = `Exported ${body.messageCount} messages to ${body.containerUrl}`;
+    solidStatus.className = "modal-status success";
+    renderSystemMsg(directorMessages, `Session exported to Solid Pod: ${body.containerUrl}`);
+    setTimeout(hideSolidExportModal, 2000);
+  } catch (err) {
+    solidStatus.textContent = `Export error: ${err.message}`;
+    solidStatus.className = "modal-status error";
+  } finally {
+    $("#btn-solid-export").disabled = false;
+  }
+}
+
+// Modal event listeners
+$("#btn-export-pod").addEventListener("click", showSolidExportModal);
+$("#btn-solid-cancel").addEventListener("click", hideSolidExportModal);
+$("#btn-solid-cancel-x").addEventListener("click", hideSolidExportModal);
+$("#btn-solid-export").addEventListener("click", exportToPod);
+
+// Close modal on overlay click
+solidModal.addEventListener("click", (e) => {
+  if (e.target === solidModal) hideSolidExportModal();
+});
+
+// Close modal on Escape
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && solidModal.style.display !== "none") {
+    hideSolidExportModal();
+  }
+});
+
 // ========== EVENT LISTENERS (additions) ==========
 
 // ========== INIT ==========
