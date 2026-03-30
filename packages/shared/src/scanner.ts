@@ -148,6 +148,27 @@ export function scanContent(content: string): ScanResult {
 }
 
 /**
+ * Emit a structured JSON log for content scan events.
+ * Enables monitoring/alerting on blocked content across all protocol bridges.
+ */
+export function logScanEvent(
+  protocol: string,
+  action: "allowed" | "blocked",
+  details?: string
+): void {
+  const timestamp = new Date().toISOString();
+  console.log(
+    JSON.stringify({
+      event: "content_scan",
+      timestamp,
+      protocol,
+      action,
+      details,
+    })
+  );
+}
+
+/**
  * Strip absolute paths from content, replacing with relative paths
  */
 export function sanitizePaths(content: string): string {

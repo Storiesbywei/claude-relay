@@ -12,7 +12,7 @@
  */
 
 import type { StoredMessage, SolidExportConfig } from "@claude-relay/shared";
-import { RELAY_VOCAB, MESSAGE_TYPE_TO_RDF_CLASS } from "@claude-relay/shared";
+import { RELAY_VOCAB, MESSAGE_TYPE_TO_RDF_CLASS, scanContent, logScanEvent } from "@claude-relay/shared";
 import {
   addMessage,
   hasMessageWithSolidUrl,
@@ -185,6 +185,24 @@ export async function bridgeSolidToHttp(
       console.error(`[solid bridge] Failed to parse resource at ${resourceUrl}`);
       return false;
     }
+
+    // Tag protocol origin
+    message.origin = "solid";
+
+    // Security: scan bridged content before injecting into HTTP session
+    const scan = scanContent(message.content);
+    if (scan.hasSensitive) {
+      logScanEvent("solid", "blocked", `resource=${resourceUrl} — ${scan.warnings.join(", ")}`);
+      return false;
+    }
+    if (message.title) {
+      const titleScan = scanContent(message.title);
+      if (titleScan.hasSensitive) {
+        logScanEvent("solid", "blocked", `resource=${resourceUrl} — sensitive title`);
+        return false;
+      }
+    }
+    logScanEvent("solid", "allowed", `resource=${resourceUrl}`);
 
     addMessage(sessionId, message);
     console.log(`[solid bridge] Injected message from ${resourceUrl} into session ${sessionId}`);
