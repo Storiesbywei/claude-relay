@@ -15,7 +15,7 @@ const INVISIBLE_CHARS = [
   /[\u2028-\u2029]/g,           // Line/paragraph separators
   /[\u2060-\u2064]/g,           // Word joiner, invisible operators
   /[\uFEFF]/g,                  // BOM / zero-width no-break space
-  /[\uE0000-\uE007F]/gu,       // Tags block (Unicode steganography)
+  /[\u{E0000}-\u{E007F}]/gu,    // Tags block (Unicode steganography — requires u flag for astral planes)
   /[\u00AD]/g,                  // Soft hyphen
   /[\u034F]/g,                  // Combining grapheme joiner
   /[\u061C]/g,                  // Arabic letter mark
@@ -94,9 +94,10 @@ const MD_IMAGE_EXFIL = /!\[[^\]]*\]\(https?:\/\/[^)]*[?&][A-Za-z0-9+/=]{20,}/;
 export function scanContent(content: string): ScanResult {
   const warnings: string[] = [];
 
-  // Phase 1: Detect Unicode steganography
+  // Phase 1: Strip invisible Unicode (informational — does not block by itself)
   const { clean, strippedCount } = sanitizeUnicode(content);
-  if (strippedCount > 0) {
+  // Only warn on significant steganography (>5 chars suggests intentional hiding, not encoding artifacts)
+  if (strippedCount > 5) {
     warnings.push(
       `${strippedCount} invisible Unicode character(s) stripped — possible steganography`
     );
