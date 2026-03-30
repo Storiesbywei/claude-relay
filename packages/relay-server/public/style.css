@@ -7,8 +7,9 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ===== Design Tokens ===== */
+
+/* --- Dark mode (default) --- */
 :root {
-  /* Palette */
   --ink: #060912;
   --vellum: #0d1424;
   --glass: rgba(13,20,36,0.78);
@@ -18,6 +19,12 @@
   --text-secondary: #8b8fa4;
   --text-tertiary: #525670;
   --text-dim: #3a3e54;
+  --card-bg: rgba(255,255,255,0.03);
+  --input-bg: rgba(255,255,255,0.04);
+  --code-bg: rgba(0,0,0,0.35);
+  --mesh-color: 139,92,246;  /* violet for canvas */
+  --mesh-alpha: 0.04;
+  --mesh-dot-alpha: 0.1;
 
   /* Accent colors by message type */
   --amber: #E8A020;
@@ -39,6 +46,73 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-xs: 4px;
+}
+
+/* --- Light mode: aged vellum / warm parchment --- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="oled"]) {
+    --ink: #f4f0e8;           /* warm parchment — not white, gentle cream */
+    --vellum: #ebe6db;        /* slightly deeper aged paper */
+    --glass: rgba(244,240,232,0.85);
+    --glass-border: rgba(0,0,0,0.08);
+    --glass-border-hover: rgba(0,0,0,0.15);
+    --text-primary: #2c2a25;  /* warm dark brown, not pure black */
+    --text-secondary: #6b665c;
+    --text-tertiary: #9e9789;
+    --text-dim: #c4bfb4;
+    --card-bg: rgba(255,255,255,0.5);
+    --input-bg: rgba(255,255,255,0.6);
+    --code-bg: rgba(0,0,0,0.04);
+    --mesh-color: 180,160,120;  /* warm golden motes */
+    --mesh-alpha: 0.06;
+    --mesh-dot-alpha: 0.08;
+
+    /* Accent colors — slightly muted for light backgrounds */
+    --amber: #c48a10;
+    --violet: #7c3aed;
+    --teal: #0a9e8a;
+    --t-insight: #9333ea;
+    --sage: #059669;
+    --rose: #db2777;
+  }
+}
+
+/* --- OLED black mode (manual via data-theme="oled") --- */
+:root[data-theme="oled"] {
+  --ink: #000000;              /* true black for OLED power savings */
+  --vellum: #0a0a0a;           /* near-black, just enough to distinguish */
+  --glass: rgba(0,0,0,0.88);
+  --glass-border: rgba(255,255,255,0.04);
+  --glass-border-hover: rgba(255,255,255,0.09);
+  --text-primary: #d4d4d8;    /* slightly dimmer than dark mode — easier on eyes */
+  --text-secondary: #71717a;
+  --text-tertiary: #3f3f46;
+  --text-dim: #27272a;
+  --card-bg: rgba(255,255,255,0.02);
+  --input-bg: rgba(255,255,255,0.03);
+  --code-bg: rgba(255,255,255,0.03);
+  --mesh-color: 100,70,200;   /* dimmer violet */
+  --mesh-alpha: 0.025;
+  --mesh-dot-alpha: 0.06;
+}
+
+/* --- Force dark (manual override for light-mode devices) --- */
+:root[data-theme="dark"] {
+  --ink: #060912;
+  --vellum: #0d1424;
+  --glass: rgba(13,20,36,0.78);
+  --glass-border: rgba(255,255,255,0.06);
+  --glass-border-hover: rgba(255,255,255,0.12);
+  --text-primary: #e8eaf0;
+  --text-secondary: #8b8fa4;
+  --text-tertiary: #525670;
+  --text-dim: #3a3e54;
+  --card-bg: rgba(255,255,255,0.03);
+  --input-bg: rgba(255,255,255,0.04);
+  --code-bg: rgba(0,0,0,0.35);
+  --mesh-color: 139,92,246;
+  --mesh-alpha: 0.04;
+  --mesh-dot-alpha: 0.1;
 }
 
 html, body {
@@ -231,7 +305,7 @@ a:hover { text-decoration: underline; }
 .btn-ghost-chronicle:hover {
   border-color: var(--glass-border-hover);
   color: var(--text-primary);
-  background: rgba(255,255,255,0.03);
+  background: var(--card-bg);
 }
 
 /* ===== Main App Layout ===== */
@@ -369,7 +443,7 @@ a:hover { text-decoration: underline; }
   font-size: 16px;
   transition: all 0.15s;
 }
-.mast-btn:hover { background: rgba(255,255,255,0.04); border-color: var(--glass-border-hover); }
+.mast-btn:hover { background: var(--input-bg); border-color: var(--glass-border-hover); }
 .mast-btn.danger:hover { background: rgba(255,107,107,0.1); color: #ff6b6b; border-color: rgba(255,107,107,0.3); }
 
 /* ===== Invite Bar ===== */
@@ -875,7 +949,7 @@ a:hover { text-decoration: underline; }
 
 .ec-footer .origin-tag {
   padding: 1px 6px;
-  background: rgba(255,255,255,0.03);
+  background: var(--card-bg);
   border-radius: var(--radius-xs);
 }
 
@@ -913,8 +987,8 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
   transition: all 0.15s;
 }
-.composer-tab:hover { color: var(--text-secondary); background: rgba(255,255,255,0.03); }
-.composer-tab.active { border-color: var(--glass-border-hover); color: var(--text-primary); background: rgba(255,255,255,0.04); }
+.composer-tab:hover { color: var(--text-secondary); background: var(--card-bg); }
+.composer-tab.active { border-color: var(--glass-border-hover); color: var(--text-primary); background: var(--input-bg); }
 
 /* Specific tab active states */
 .composer-tab[data-type="Arch"].active { color: var(--amber); border-color: rgba(232,160,32,0.3); background: rgba(232,160,32,0.06); }

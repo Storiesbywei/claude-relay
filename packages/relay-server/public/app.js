@@ -612,6 +612,12 @@ function initMeshCanvas() {
       if (p.y > canvas.height) p.y = 0;
     }
 
+    // Read theme colors from CSS variables
+    var style = getComputedStyle(document.documentElement);
+    var meshColor = style.getPropertyValue('--mesh-color').trim() || '139,92,246';
+    var meshAlpha = parseFloat(style.getPropertyValue('--mesh-alpha')) || 0.04;
+    var dotAlpha = parseFloat(style.getPropertyValue('--mesh-dot-alpha')) || 0.1;
+
     // Faint connections — barely visible
     for (var i = 0; i < particles.length; i++) {
       for (var j = i + 1; j < particles.length; j++) {
@@ -619,8 +625,8 @@ function initMeshCanvas() {
         var dy = particles[i].y - particles[j].y;
         var dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < connectionDist) {
-          var alpha = (1 - dist / connectionDist) * 0.04; // Very faint
-          ctx.strokeStyle = 'rgba(139,92,246,' + alpha + ')';
+          var alpha = (1 - dist / connectionDist) * meshAlpha;
+          ctx.strokeStyle = 'rgba(' + meshColor + ',' + alpha + ')';
           ctx.lineWidth = 0.3;
           ctx.beginPath();
           ctx.moveTo(particles[i].x, particles[i].y);
@@ -630,12 +636,12 @@ function initMeshCanvas() {
       }
     }
 
-    // Dots — no glow, no mouse interaction, just quiet presence
+    // Dots — quiet presence, color follows theme
     for (var i = 0; i < particles.length; i++) {
       var p = particles[i];
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(139,92,246,0.1)';
+      ctx.fillStyle = 'rgba(' + meshColor + ',' + dotAlpha + ')';
       ctx.fill();
     }
 
@@ -730,10 +736,52 @@ function init() {
   // Scroll detection for auto-scroll
   initScrollDetection();
 
+  // Theme switcher
+  initTheme();
+  document.getElementById('btn-theme').addEventListener('click', cycleTheme);
+
   // Periodically refresh participant list
   setInterval(function() {
     if (state.session) refreshStatus();
   }, 10000);
+}
+
+// --------------- Theme Management ---------------
+// Cycle: auto (system) → dark → oled → auto
+// "auto" means no data-theme attribute — respects prefers-color-scheme
+
+var THEMES = ['auto', 'dark', 'oled'];
+var THEME_ICONS = { auto: 'ph-circle-half', dark: 'ph-moon', oled: 'ph-eye' };
+var THEME_LABELS = { auto: 'Auto (system)', dark: 'Dark', oled: 'OLED Black' };
+
+function initTheme() {
+  var saved = localStorage.getItem('relay_theme') || 'auto';
+  applyTheme(saved);
+}
+
+function applyTheme(theme) {
+  var root = document.documentElement;
+  if (theme === 'auto') {
+    root.removeAttribute('data-theme');
+  } else {
+    root.setAttribute('data-theme', theme);
+  }
+  // Update icon
+  var icon = document.getElementById('theme-icon');
+  if (icon) {
+    icon.className = 'ph ' + (THEME_ICONS[theme] || 'ph-moon');
+  }
+  // Update title
+  var btn = document.getElementById('btn-theme');
+  if (btn) btn.title = 'Theme: ' + (THEME_LABELS[theme] || theme);
+  localStorage.setItem('relay_theme', theme);
+}
+
+function cycleTheme() {
+  var current = localStorage.getItem('relay_theme') || 'auto';
+  var idx = THEMES.indexOf(current);
+  var next = THEMES[(idx + 1) % THEMES.length];
+  applyTheme(next);
 }
 
 document.addEventListener('DOMContentLoaded', init);
