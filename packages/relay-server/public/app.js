@@ -1,63 +1,108 @@
-// === Claude Relay Dashboard v2 ===
+// === Claude Relay Dashboard v3 — Modern Vanilla JS Rewrite ===
+// ES2022+, no frameworks, no build step.
 
-const API = window.location.origin; // works with localhost, ngrok, any host
+"use strict";
+
+// ---------------------------------------------------------------------------
+// 1. State
+// ---------------------------------------------------------------------------
 
 const state = {
-  mode: "director", // "director" | "peer"
-  // Session state (director mode)
-  sessionId: null,
-  myToken: null,
-  inviteToken: null,
-  myName: "Director",
+  session: null,      // { id, token, invite, name, role }
+  messages: [],       // StoredMessage[]
+  participants: [],   // { name, role, joined_at }[]
   cursor: 0,
-  eventSource: null,
-  // Peer simulation state
+  connected: false,
+  sseAbort: null,     // AbortController for SSE fetch
+  pollTimer: null,    // fallback polling interval
+  healthTimer: null,
+  timestampTimer: null,
+  userScrolled: false,
+
+  // Workspace (file tree, file viewer)
+  workspace: {
+    tree: [],         // { path, type, indent, changed }[]
+    files: {},        // path -> content
+    activeFile: null,
+  },
+
+  // Peer simulation
+  simulating: false,
   simTokenA: null,
   simTokenB: null,
-  simulating: false,
-  // Counters
-  directorCount: 0,
-  countA: 0,
-  countB: 0,
-  totalRelayed: 0,
+  peerCounts: { a: 0, b: 0, total: 0 },
 };
 
-// --- DOM ---
-const $ = (s) => document.querySelector(s);
-const directorView = $("#director-view");
-const peerView = $("#peer-view");
-const modeToggle = $("#mode-toggle");
-const toggleTrack = modeToggle.querySelector(".toggle-track");
-const modeLabels = modeToggle.querySelectorAll(".mode-label");
+// Participant color palette — 4-color rotation
+const PARTICIPANT_COLORS = ["#5e9cff", "#ff6b8a", "#50d890", "#f5a623"];
+const participantColorMap = new Map();
 
-// Session bar
-const sessionControls = $("#session-controls");
-const joinControls = $("#join-controls");
-const peerControls = $("#peer-controls");
-const sessionBadge = $("#session-badge");
-const inviteTokenEl = $("#invite-token");
-const statusDot = $("#status-dot");
-const statusText = $("#status-text");
-const msgTotal = $("#msg-total");
-const relayInfo = $("#relay-info");
+function getParticipantColor(name) {
+  if (!participantColorMap.has(name)) {
+    participantColorMap.set(name, PARTICIPANT_COLORS[participantColorMap.size % PARTICIPANT_COLORS.length]);
+  }
+  return participantColorMap.get(name);
+}
 
-// Director
-const directorMessages = $("#director-messages");
-const directorTextarea = $("#director-textarea");
-const directorTyping = $("#director-typing");
-const directorCountEl = $("#director-count");
-const workerName = $("#worker-name");
-const workerStatus = $("#worker-status");
+// ---------------------------------------------------------------------------
+// 2. Utilities
+// ---------------------------------------------------------------------------
 
-// Peer
-const messagesA = $("#messages-a");
-const messagesB = $("#messages-b");
-const countAEl = $("#count-a");
-const countBEl = $("#count-b");
-const typingA = $("#typing-a");
-const typingB = $("#typing-b");
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
 
-// --- Clipboard (works over plain HTTP) ---
+function escapeHtml(str) {
+  return (str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
+/** Render markdown-ish content (escape first, then apply patterns). */
+function renderContent(raw) {
+  let s = escapeHtml(raw);
+
+  // Code blocks: ```...```
+  s = s.replace(/```([\s\S]*?)```/g, (_m, code) => `<pre><code>${code}</code></pre>`);
+
+  // Inline code: `...`
+  s = s.replace(/`([^`]+)`/g, (_m, code) => `<code>${code}</code>`);
+
+  // Bold: **...**
+  s = s.replace(/\*\*(.+?)\*\*/g, (_m, txt) => `<strong>${txt}</strong>`);
+
+  // Headings: # at start of line
+  s = s.replace(/^# (.+)$/gm, (_m, txt) => `<h3>${txt}</h3>`);
+
+  // Auto-link URLs
+  s = s.replace(/(https?:\/\/[^\s<&]+)/g, (url) => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
+
+  // Newlines -> <br> (but not inside <pre>)
+  s = s.replace(/\n/g, "<br>");
+
+  return s;
+}
+
+/** Relative timestamp. */
+function relativeTime(iso) {
+  if (!iso) return "";
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 10) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+/** Absolute time for title attribute. */
+function absoluteTime(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+/** Copy text (secure context or fallback). */
 function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
@@ -66,747 +111,718 @@ function copyText(text) {
   }
 }
 function fallbackCopy(text) {
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.opacity = "0";
+  const ta = Object.assign(document.createElement("textarea"), {
+    value: text,
+    style: "position:fixed;opacity:0",
+  });
   document.body.appendChild(ta);
   ta.select();
   document.execCommand("copy");
   document.body.removeChild(ta);
 }
 
-function setupSessionBadge(sessionId) {
-  sessionBadge.textContent = `session: ${sessionId.slice(0, 8)}...`;
-  sessionBadge.title = sessionId;
-  sessionBadge.style.cursor = "pointer";
-  sessionBadge.onclick = () => {
-    copyText(sessionId);
-    sessionBadge.textContent = "copied!";
-    setTimeout(() => { sessionBadge.textContent = `session: ${sessionId.slice(0, 8)}...`; }, 1500);
-  };
-  sessionBadge.classList.add("active");
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-// --- API ---
-async function api(path, opts = {}) {
-  const res = await fetch(`${API}${path}`, {
-    headers: { "Content-Type": "application/json", ...opts.headers },
-    ...opts,
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-function authHeaders(token) {
-  return { Authorization: `Bearer ${token || state.myToken}` };
-}
-
-async function checkHealth() {
-  try {
-    const data = await api("/health");
-    statusDot.classList.add("connected");
-    statusText.textContent = "connected";
-    const nostrStr = data.nostr ? ` | nostr: ${data.nostr.connections} ws, ${data.nostr.events} events` : "";
-    relayInfo.textContent = `relay server: ${window.location.host} | v${data.version} | ${data.sessions} session(s)${nostrStr}`;
-    return true;
-  } catch {
-    statusDot.classList.remove("connected");
-    statusText.textContent = "disconnected";
-    return false;
-  }
-}
-
-// --- Mode Toggle ---
-function setMode(mode) {
-  state.mode = mode;
-  if (mode === "director") {
-    directorView.style.display = "flex";
-    peerView.style.display = "none";
-    toggleTrack.classList.remove("peer");
-    peerControls.style.display = "none";
-    // Show session controls if we have a session, else show new session button
-    updateSessionBar();
-  } else {
-    directorView.style.display = "none";
-    peerView.style.display = "flex";
-    toggleTrack.classList.add("peer");
-    sessionControls.style.display = "none";
-    joinControls.style.display = "none";
-    peerControls.style.display = "flex";
-    $("#btn-new-session").style.display = "none";
-  }
-  modeLabels.forEach((l) => {
-    l.classList.toggle("active", l.dataset.mode === mode);
-  });
-  localStorage.setItem("relay-mode", mode);
-}
-
-modeToggle.addEventListener("click", () => {
-  setMode(state.mode === "director" ? "peer" : "director");
-});
-
-function updateSessionBar() {
-  if (state.mode !== "director") return;
-  if (state.sessionId) {
-    $("#btn-new-session").style.display = "none";
-    sessionControls.style.display = "flex";
-    joinControls.style.display = "none";
-  } else {
-    $("#btn-new-session").style.display = "";
-    sessionControls.style.display = "none";
-    // Show join controls too
-    joinControls.style.display = "flex";
-  }
-}
-
-// --- Session Management (Director) ---
-async function createSession() {
-  try {
-    const data = await api("/sessions", {
-      method: "POST",
-      body: JSON.stringify({ name: "Director Session" }),
-    });
-    state.sessionId = data.session_id;
-    state.myToken = data.creator_token;
-    state.inviteToken = data.invite_token;
-    state.cursor = 0;
-    state.myName = "Director";
-
-    setupSessionBadge(data.session_id);
-    inviteTokenEl.textContent = data.invite_token;
-    updateSessionBar();
-    renderSystemMsg(directorMessages, "Session created. Share the invite token with the worker.");
-    saveSession();
-    startSSE();
-  } catch (err) {
-    renderSystemMsg(directorMessages, `Error: ${err.message}`);
-  }
-}
-
-async function joinSession() {
-  const sid = $("#join-session-id").value.trim();
-  const invite = $("#join-invite-token").value.trim();
-  if (!sid || !invite) return;
-
-  try {
-    const data = await api(`/sessions/${sid}/join`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${invite}` },
-      body: JSON.stringify({ participant_name: "Director" }),
-    });
-    state.sessionId = sid;
-    state.myToken = data.participant_token;
-    state.inviteToken = null;
-    state.cursor = 0;
-    state.myName = "Director";
-
-    setupSessionBadge(sid);
-    updateSessionBar();
-    renderSystemMsg(directorMessages, "Joined session as Director.");
-    saveSession();
-    startSSE();
-  } catch (err) {
-    renderSystemMsg(directorMessages, `Error: ${err.message}`);
-  }
-}
-
-function endSession() {
-  if (state.eventSource) {
-    state.eventSource.close();
-    state.eventSource = null;
-  }
-  state.sessionId = null;
-  state.myToken = null;
-  state.inviteToken = null;
-  state.cursor = 0;
-  state.directorCount = 0;
-  sessionBadge.textContent = "no session";
-  sessionBadge.classList.remove("active");
-  directorMessages.innerHTML = "";
-  directorCountEl.textContent = "0 msgs";
-  workerName.textContent = "Waiting for worker...";
-  workerStatus.textContent = "no one connected";
-  updateSessionBar();
-  localStorage.removeItem("relay-session");
-}
-
-function saveSession() {
-  if (state.sessionId) {
-    localStorage.setItem("relay-session", JSON.stringify({
-      sessionId: state.sessionId,
-      myToken: state.myToken,
-      inviteToken: state.inviteToken,
-      cursor: state.cursor,
-    }));
-  }
-}
-
-function loadSession() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("relay-session"));
-    if (saved?.sessionId) {
-      state.sessionId = saved.sessionId;
-      state.myToken = saved.myToken;
-      state.inviteToken = saved.inviteToken;
-      state.cursor = saved.cursor || 0;
-      setupSessionBadge(saved.sessionId);
-      if (saved.inviteToken) inviteTokenEl.textContent = saved.inviteToken;
-      updateSessionBar();
-      // Load existing messages
-      loadHistory();
-      startSSE();
-    }
-  } catch { /* no saved session */ }
-}
-
-async function loadHistory() {
-  if (!state.sessionId || !state.myToken) return;
-  try {
-    const data = await api(`/relay/${state.sessionId}?since=0&limit=50`, {
-      headers: authHeaders(),
-    });
-    for (const msg of data.messages) {
-      renderDirectorMessage(msg);
-      state.directorCount++;
-    }
-    state.cursor = data.cursor;
-    directorCountEl.textContent = `${state.directorCount} msgs`;
-    saveSession();
-    // Check participants
-    checkParticipants();
-  } catch { /* session may have expired */ }
-}
-
-// Participant color mapping for badges (Sprint 2: identity badges)
-const PARTICIPANT_COLORS = ["creator", "participant-1", "participant-2", "participant-3"];
-
-// Track participant list for badge rendering
-state.participants = [];
-
-async function checkParticipants() {
-  if (!state.sessionId || !state.myToken) return;
-  try {
-    const data = await api(`/sessions/${state.sessionId}`, {
-      headers: authHeaders(),
-    });
-    const participants = data.participants || [];
-    // Handle both old format (string[]) and new format (object[])
-    if (participants.length > 0 && typeof participants[0] === "object") {
-      state.participants = participants;
-      const names = participants.map((p) => p.name);
-      const others = names.filter((n) => n !== "Director" && n !== "creator");
-      if (others.length > 0) {
-        workerName.textContent = others[0];
-        workerStatus.textContent = `connected (${names.length} participants)`;
-      }
-    } else {
-      // Legacy string[] format
-      state.participants = participants.map((n, i) => ({
-        name: n,
-        role: i === 0 ? "creator" : "participant",
-      }));
-      const others = participants.filter((n) => n !== "Director" && n !== "creator");
-      if (others.length > 0) {
-        workerName.textContent = others[0];
-        workerStatus.textContent = `connected (${participants.length} participants)`;
-      }
-    }
-  } catch { /* ignore */ }
-}
-
-function getParticipantBadgeClass(senderName) {
-  if (!senderName) return "badge-creator";
-  const lower = senderName.toLowerCase();
-  if (lower === "creator" || lower === "director") return "badge-creator";
-  const idx = state.participants.findIndex(
-    (p) => p.name && p.name.toLowerCase() === lower
-  );
-  if (idx <= 0) return "badge-participant-1";
-  const colorIdx = Math.min(idx, PARTICIPANT_COLORS.length - 1);
-  return `badge-${PARTICIPANT_COLORS[colorIdx]}`;
-}
-
-function getRoleIcon(senderName) {
-  if (!senderName) return "\u{1F464}";
-  const lower = senderName.toLowerCase();
-  if (lower === "creator" || lower === "director") return "\u{1F464}";
-  const agentKeywords = ["claude", "agent", "bot", "worker", "auditor", "analyst", "scout", "strategist", "architect", "reviewer", "mba-", "mcp-", "opus", "sonnet", "haiku"];
-  if (agentKeywords.some(k => lower.includes(k))) return "\u{1F916}";
-  return "\u{1F464}";
-}
-
-function inferSenderTag(name) {
+/** Infer whether a sender is human or agent. */
+function inferRole(name) {
   if (!name) return "human";
   const lower = name.toLowerCase();
-  const agentKeywords = ["claude", "agent", "bot", "worker", "auditor", "analyst", "scout", "strategist", "architect", "reviewer", "mba-", "mcp-", "opus", "sonnet", "haiku"];
-  if (agentKeywords.some(k => lower.includes(k))) return "agent";
-  return "human";
+  const agentWords = [
+    "claude", "agent", "bot", "worker", "auditor", "analyst",
+    "scout", "strategist", "architect", "reviewer",
+    "mba-", "mcp-", "opus", "sonnet", "haiku",
+  ];
+  return agentWords.some((k) => lower.includes(k)) ? "agent" : "human";
 }
 
-// --- SSE Stream ---
-function startSSE() {
-  if (!state.sessionId || !state.myToken) return;
-  if (state.eventSource) state.eventSource.close();
+// ---------------------------------------------------------------------------
+// 3. Toast Notifications
+// ---------------------------------------------------------------------------
 
-  // SSE needs auth — use polling fallback since EventSource doesn't support headers
+function showToast(message, type = "info") {
+  const container = $("#toast-container");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  // Trigger slide-in
+  requestAnimationFrame(() => toast.classList.add("show"));
+
+  // Auto-dismiss after 4s
+  setTimeout(() => {
+    toast.classList.remove("show");
+    toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+    // Safety cleanup
+    setTimeout(() => toast.remove(), 500);
+  }, 4000);
+}
+
+// ---------------------------------------------------------------------------
+// 4. API Client
+// ---------------------------------------------------------------------------
+
+const API_BASE = window.location.origin;
+
+const api = {
+  async _fetch(path, opts = {}) {
+    const headers = { "Content-Type": "application/json", ...opts.headers };
+    if (state.session?.token) {
+      headers.Authorization ??= `Bearer ${state.session.token}`;
+    }
+    const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async createSession(name, ttl = 60) {
+    return this._fetch("/sessions", {
+      method: "POST",
+      body: JSON.stringify({ name, ttl_minutes: ttl }),
+    });
+  },
+
+  async joinSession(id, invite, participantName = "Participant") {
+    return this._fetch(`/sessions/${id}/join`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${invite}` },
+      body: JSON.stringify({ participant_name: participantName }),
+    });
+  },
+
+  async sendMessage(type, title, content, extra = {}) {
+    if (!state.session) throw new Error("No active session");
+    return this._fetch(`/relay/${state.session.id}`, {
+      method: "POST",
+      body: JSON.stringify({ type, title, content, ...extra }),
+    });
+  },
+
+  async pollMessages(since = 0, limit = 50) {
+    if (!state.session) throw new Error("No active session");
+    return this._fetch(`/relay/${state.session.id}?since=${since}&limit=${limit}`);
+  },
+
+  async getSessionInfo() {
+    if (!state.session) throw new Error("No active session");
+    return this._fetch(`/sessions/${state.session.id}`);
+  },
+
+  async exportSession(format = "json") {
+    if (!state.session) throw new Error("No active session");
+    // Build export from local message cache
+    const data = {
+      session: state.session,
+      messages: state.messages,
+      participants: state.participants,
+      exported_at: new Date().toISOString(),
+    };
+    if (format === "markdown") {
+      return exportAsMarkdown(data);
+    }
+    return data;
+  },
+
+  async getHealth() {
+    return this._fetch("/health");
+  },
+};
+
+// ---------------------------------------------------------------------------
+// 5. SSE Connection (fetch-based for auth header support)
+// ---------------------------------------------------------------------------
+
+function connectSSE() {
+  if (!state.session?.id || !state.session?.token) return;
+  disconnectSSE();
+
+  const controller = new AbortController();
+  state.sseAbort = controller;
+
+  const url = `${API_BASE}/relay/${state.session.id}/stream`;
+  const lastId = state.cursor > 0 ? state.cursor : undefined;
+
+  fetch(url, {
+    headers: {
+      Authorization: `Bearer ${state.session.token}`,
+      Accept: "text/event-stream",
+      ...(lastId != null ? { "Last-Event-ID": String(lastId) } : {}),
+    },
+    signal: controller.signal,
+  })
+    .then((res) => {
+      if (!res.ok || !res.body) {
+        throw new Error(`SSE response ${res.status}`);
+      }
+      state.connected = true;
+      updateConnectionStatus(true);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      function pump() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            handleSSEClose();
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop(); // keep incomplete line
+
+          let currentEvent = "";
+          let currentData = "";
+          let currentId = "";
+
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              currentEvent = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              currentData += (currentData ? "\n" : "") + line.slice(5).trim();
+            } else if (line.startsWith("id:")) {
+              currentId = line.slice(3).trim();
+            } else if (line === "") {
+              // End of event block
+              if (currentEvent === "message" && currentData) {
+                try {
+                  const msg = JSON.parse(currentData);
+                  handleIncomingMessage(msg);
+                  if (currentId) state.cursor = Number(currentId);
+                } catch { /* invalid JSON */ }
+              }
+              currentEvent = "";
+              currentData = "";
+              currentId = "";
+            }
+          }
+          pump();
+        }).catch((err) => {
+          if (err.name !== "AbortError") handleSSEClose();
+        });
+      }
+
+      pump();
+    })
+    .catch((err) => {
+      if (err.name !== "AbortError") {
+        console.warn("[sse] Connection failed, falling back to polling:", err.message);
+        handleSSEClose();
+      }
+    });
+}
+
+function disconnectSSE() {
+  if (state.sseAbort) {
+    state.sseAbort.abort();
+    state.sseAbort = null;
+  }
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
+  state.connected = false;
+  updateConnectionStatus(false);
+}
+
+function handleSSEClose() {
+  state.connected = false;
+  updateConnectionStatus(false);
+  state.sseAbort = null;
+
+  // Fall back to polling
   startPolling();
+
+  // Attempt SSE reconnect after 5s
+  setTimeout(() => {
+    if (state.session?.id && !state.sseAbort) {
+      connectSSE();
+    }
+  }, 5000);
 }
 
 function startPolling() {
-  if (state._pollTimer) clearInterval(state._pollTimer);
-  state._pollTimer = setInterval(async () => {
-    if (!state.sessionId || !state.myToken) return;
+  if (state.pollTimer) return;
+  state.pollTimer = setInterval(async () => {
+    if (!state.session) return;
     try {
-      const data = await api(`/relay/${state.sessionId}?since=${state.cursor}&limit=20`, {
-        headers: authHeaders(),
-      });
+      const data = await api.pollMessages(state.cursor, 20);
       for (const msg of data.messages) {
-        renderDirectorMessage(msg);
-        state.directorCount++;
-        state.totalRelayed++;
+        handleIncomingMessage(msg);
       }
       if (data.messages.length > 0) {
         state.cursor = data.cursor;
-        directorCountEl.textContent = `${state.directorCount} msgs`;
-        msgTotal.textContent = `${state.totalRelayed} messages relayed`;
         saveSession();
-        checkParticipants();
       }
     } catch { /* server down or session expired */ }
   }, 1500);
 }
 
-// --- Send Message (Director) ---
-async function sendDirectorMessage() {
-  const content = directorTextarea.value.trim();
-  if (!content || !state.sessionId || !state.myToken) return;
+function handleIncomingMessage(msg) {
+  // Deduplicate
+  if (state.messages.some((m) => m.message_id === msg.message_id)) return;
 
-  const msgType = $("#msg-type").value;
+  state.messages.push(msg);
+  renderMessage(msg);
+  updateMessageCount();
+  saveSession();
 
-  try {
-    await api(`/relay/${state.sessionId}`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({
-        type: msgType,
-        content,
-        sender: state.myName,
-      }),
+  // Handle workspace message types
+  if (msg.type === "file_tree") handleFileTree(msg);
+  if (msg.type === "file_change") handleFileChange(msg);
+  if (msg.type === "file_read") handleFileRead(msg);
+  if (msg.type === "status_update") handleStatusUpdate(msg);
+}
+
+// ---------------------------------------------------------------------------
+// 6. UI Rendering — Messages
+// ---------------------------------------------------------------------------
+
+function renderMessage(msg) {
+  const feed = $("#message-feed");
+  if (!feed) return;
+
+  const card = document.createElement("div");
+  card.className = "message-card";
+  card.dataset.messageId = msg.message_id || "";
+  card.dataset.sentAt = msg.sent_at || "";
+
+  const senderName = msg.sender_name || msg.sender || "unknown";
+  const role = inferRole(senderName);
+  const color = getParticipantColor(senderName);
+  const typeChip = msg.type || "context";
+
+  // Build file-change-specific content
+  let contentHtml;
+  if (msg.type === "file_change" || msg.type === "file_read") {
+    const lines = (msg.content || "").split("\n");
+    const pathLine = lines[0] || "";
+    const filePath = pathLine.replace(/^path:\s*/, "").trim();
+    const body = lines.slice(2).join("\n");
+    contentHtml = `<span class="file-path" data-path="${escapeHtml(filePath)}">${escapeHtml(filePath)}</span>`;
+    if (msg.type === "file_change") {
+      const preview = body.split("\n").slice(0, 10).join("\n");
+      contentHtml += `<pre class="diff-preview"><code>${renderDiff(preview)}${body.split("\n").length > 10 ? "\n..." : ""}</code></pre>`;
+    }
+  } else {
+    contentHtml = `<div class="message-content">${renderContent(msg.content || "")}</div>`;
+  }
+
+  card.innerHTML = `
+    <div class="message-header">
+      <span class="participant-badge" style="background:${color}">${escapeHtml(senderName.slice(0, 2).toUpperCase())}</span>
+      <span class="participant-name">${escapeHtml(senderName)}</span>
+      <span class="role-tag role-${role}">${role}</span>
+      <span class="type-chip type-${typeChip}">${escapeHtml(typeChip)}</span>
+      <time class="timestamp" title="${absoluteTime(msg.sent_at)}" data-ts="${msg.sent_at || ""}">${relativeTime(msg.sent_at)}</time>
+    </div>
+    ${contentHtml}
+  `;
+
+  // Click handler on file-path spans
+  const filePathEl = card.querySelector(".file-path");
+  if (filePathEl) {
+    filePathEl.addEventListener("click", () => {
+      const fp = filePathEl.dataset.path;
+      if (fp && state.workspace.files[fp]) openFileViewer(fp);
     });
-    directorTextarea.value = "";
-    directorTextarea.style.height = "auto";
-  } catch (err) {
-    renderSystemMsg(directorMessages, `Send failed: ${err.message}`);
   }
+
+  feed.appendChild(card);
+  autoScroll(feed);
 }
 
-// --- Rendering ---
-function renderDirectorMessage(msg) {
-  // Handle workspace-aware message types
-  if (msg.type === "file_tree") {
-    handleFileTree(msg);
-    return;
-  }
-  if (msg.type === "file_change") {
-    handleFileChange(msg);
-    return;
-  }
-  if (msg.type === "file_read") {
-    handleFileRead(msg);
-    return;
-  }
-  if (msg.type === "status_update") {
-    handleStatusUpdate(msg);
-  }
-
-  const isMine = msg.sender_name === "Director" || msg.sender_name === "creator";
-  const senderTag = inferSenderTag(msg.sender_name);
-  const badgeClass = getParticipantBadgeClass(msg.sender_name);
-  const roleIcon = getRoleIcon(msg.sender_name);
-  const div = document.createElement("div");
-  div.className = `message ${isMine ? "sent" : "received"}`;
-  div.innerHTML = `
-    <div class="sender">${escapeHtml(msg.sender_name)} <span class="participant-badge ${badgeClass}"><span class="role-icon">${roleIcon}</span>${senderTag}</span></div>
-    <div class="content">${escapeHtml(msg.content)}</div>
-    <div class="meta">
-      <span class="message-type ${msg.type || "context"}">${msg.type || "message"}</span>
-      <span>${formatTime(msg.sent_at)}</span>
-    </div>
-  `;
-  directorMessages.appendChild(div);
-  directorMessages.scrollTop = directorMessages.scrollHeight;
+function renderDiff(text) {
+  return text.split("\n").map((line) => {
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      return `<span class="line-added">${escapeHtml(line)}</span>`;
+    }
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      return `<span class="line-removed">${escapeHtml(line)}</span>`;
+    }
+    return escapeHtml(line);
+  }).join("\n");
 }
 
-function renderPeerMessage(container, msg, perspective) {
-  const isSent = msg.sender === perspective;
-  const div = document.createElement("div");
-  div.className = `message ${isSent ? "sent" : "received"}`;
-  div.innerHTML = `
-    <div class="sender">${escapeHtml(msg.sender)}</div>
-    <div class="content">${escapeHtml(msg.content)}</div>
-    <div class="meta">
-      <span class="message-type ${msg.type || "context"}">${msg.type || "message"}</span>
-      <span>${formatTime(msg.timestamp)}</span>
-    </div>
-  `;
-  container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
-}
-
-function renderSystemMsg(container, text) {
+function renderSystemMessage(text) {
+  const feed = $("#message-feed");
+  if (!feed) return;
   const div = document.createElement("div");
   div.className = "system-msg";
   div.textContent = text;
-  container.appendChild(div);
-  container.scrollTop = container.scrollHeight;
+  feed.appendChild(div);
+  autoScroll(feed);
 }
 
-function escapeHtml(str) {
-  return (str || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;");
-}
-
-function formatTime(ts) {
-  if (!ts) return "";
-  return new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function showToast(text) {
-  let toast = document.querySelector(".toast");
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.className = "toast";
-    document.body.appendChild(toast);
+function autoScroll(container) {
+  if (!state.userScrolled) {
+    container.scrollTop = container.scrollHeight;
   }
-  toast.textContent = text;
-  toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 1500);
 }
 
-// ========== PEER MODE SIMULATIONS ==========
+// ---------------------------------------------------------------------------
+// 7. UI Rendering — Participants
+// ---------------------------------------------------------------------------
 
-const SIMULATIONS = {
-  security: [
-    { from: "A", type: "context", content: "I've been analyzing the authentication module. Found 3 critical patterns worth sharing.", delay: 800 },
-    { from: "B", type: "question", content: "What did you find? I'm about to refactor the login flow and need to understand the current auth state.", delay: 2200 },
-    { from: "A", type: "insight", content: "Pattern 1: The JWT refresh logic has a race condition. When two API calls fire simultaneously with an expired token, both trigger a refresh — but the second one invalidates the first's new token.", delay: 3500 },
-    { from: "A", type: "insight", content: "Pattern 2: Session tokens are stored in localStorage (XSS-vulnerable). The httpOnly cookie path exists in the codebase but is commented out — looks intentional but risky.", delay: 2000 },
-    { from: "B", type: "answer", content: "That race condition explains the intermittent 401s in the error logs. I'll add a token refresh mutex — queue concurrent refreshes behind a single promise.", delay: 3000 },
-    { from: "A", type: "insight", content: "Pattern 3: The OAuth callback doesn't validate the `state` parameter. CSRF protection is essentially missing on the social login flow.", delay: 2500 },
-    { from: "B", type: "task", content: "Got it. I'll prioritize these three fixes:\n1. Token refresh mutex\n2. Migrate to httpOnly cookies\n3. Add CSRF state validation to OAuth\nShould have a PR up within the hour.", delay: 3200 },
-    { from: "A", type: "context", content: "One more thing — the rate limiter on /api/auth/login is set to 100 req/min. Industry standard for login endpoints is 5-10. Might want to tighten that too.", delay: 2800 },
-    { from: "B", type: "answer", content: "Good catch. I'll drop it to 5/min with exponential backoff. Adding it to the PR scope. Thanks for the thorough audit — this kind of cross-session knowledge sharing is exactly what the relay is for.", delay: 3500 },
-    { from: "A", type: "context", content: "Agreed. I'll move on to the database layer next. Will relay findings as I go. Happy building (o^_^o)", delay: 2000 },
-  ],
+function renderParticipants(list) {
+  // Sidebar participant list
+  const pl = $("#participant-list");
+  if (pl) {
+    pl.innerHTML = list.map((name) => {
+      const color = getParticipantColor(name);
+      const role = inferRole(name);
+      return `<div class="participant-item">
+        <span class="participant-badge" style="background:${color}">${escapeHtml(name.slice(0, 2).toUpperCase())}</span>
+        <span>${escapeHtml(name)}</span>
+        <span class="role-tag role-${role}">${role}</span>
+      </div>`;
+    }).join("");
+  }
 
-  codereview: [
-    { from: "A", type: "context", content: "Reviewing PR #247 — the new payment processing module. 412 lines across 6 files. Starting with the core PaymentService class.", delay: 1000 },
-    { from: "A", type: "insight", content: "PaymentService.processCharge() catches all exceptions and returns { success: false } silently. This swallows Stripe webhook signature validation failures — a security hole.", delay: 3000 },
-    { from: "B", type: "answer", content: "Good catch. I'll narrow the catch to only handle StripeCardError and StripeRateLimitError. Everything else should bubble up to the error boundary.", delay: 2500 },
-    { from: "A", type: "insight", content: "The refund logic uses floating point arithmetic for currency. Line 187: `amount * 0.95` for partial refunds. This will produce rounding errors on real transactions.", delay: 3200 },
-    { from: "B", type: "task", content: "Switching to integer cents throughout. Will use Math.round(amount * 100) at input boundaries and divide only for display. Classic money bug — glad we caught it pre-merge.", delay: 2800 },
-    { from: "A", type: "question", content: "The idempotency key generation uses Date.now(). Two rapid requests from the same user could collide. Was this intentional as a rate limit mechanism, or should it use a proper UUID?", delay: 3000 },
-    { from: "B", type: "answer", content: "Unintentional — it should be crypto.randomUUID(). The rate limiting should happen at the API gateway level, not through idempotency key collisions. Fixing now.", delay: 2500 },
-    { from: "A", type: "context", content: "Overall assessment: strong architecture, clean separation of concerns. The 3 issues above are the only blockers. Once fixed, this is ready to merge. Nice work on the webhook retry queue.", delay: 2000 },
-    { from: "B", type: "answer", content: "All 3 fixes pushed. Re-requesting your review. Thanks for the thorough pass — the floating point bug alone could have cost us real money in production.", delay: 2200 },
-  ],
+  // Navbar avatars
+  const avatars = $("#participant-avatars");
+  if (avatars) {
+    avatars.innerHTML = list.slice(0, 5).map((name) => {
+      const color = getParticipantColor(name);
+      return `<span class="avatar-circle" style="background:${color}" title="${escapeHtml(name)}">${escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
+    }).join("");
+    if (list.length > 5) {
+      avatars.innerHTML += `<span class="avatar-overflow">+${list.length - 5}</span>`;
+    }
+  }
+}
 
-  bughunt: [
-    { from: "A", type: "context", content: "Investigating: users report intermittent 500 errors on the /api/dashboard endpoint. Only happens during peak hours (2-4 PM EST). Error logs show 'connection pool exhausted'.", delay: 1200 },
-    { from: "B", type: "question", content: "What's the pool config? And are there any long-running queries that might be holding connections during those hours?", delay: 2500 },
-    { from: "A", type: "insight", content: "Found it. Pool max is 10 connections. But the analytics aggregation query (getMonthlyStats) takes 8-12 seconds and doesn't release its connection until the full result set is streamed. During peak hours, 3-4 users hit this simultaneously = pool starved.", delay: 4000 },
-    { from: "B", type: "task", content: "Two-pronged fix:\n1. Immediate: bump pool to 25, add 5s query timeout\n2. Root cause: rewrite getMonthlyStats to use a materialized view that refreshes every 15 min instead of computing live", delay: 3000 },
-    { from: "A", type: "insight", content: "Also found a connection leak in the error path of getUserPreferences(). If the JSON parse fails on line 94, the connection is never released back to the pool. This has been slowly eating connections since deploy v2.3.1.", delay: 3500 },
-    { from: "B", type: "answer", content: "That's the smoking gun. The parse failure + no connection release means the pool shrinks permanently over time. By afternoon peak, we're running on 2-3 connections instead of 10. Adding a finally block to release in all paths.", delay: 3000 },
-    { from: "A", type: "context", content: "Confirmed by graphing pool.activeCount over 24h — it ratchets up by 1-2 per hour and never recovers until the nightly restart. Mystery solved. The materialized view is still a good optimization but the leak was the real killer.", delay: 2800 },
-    { from: "B", type: "answer", content: "Fix deployed to staging. Pool leak patched + timeout added + pool bumped to 25 as safety margin. Monitoring the activeCount graph. Should see it flatline now instead of climbing. (o^_^o)", delay: 2500 },
-  ],
-};
+function renderSessionInfo(info) {
+  const el = $("#session-info");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="info-row"><span>Session</span><span title="${escapeHtml(info.id)}">${escapeHtml((info.id || "").slice(0, 8))}...</span></div>
+    <div class="info-row"><span>Name</span><span>${escapeHtml(info.name || "")}</span></div>
+    <div class="info-row"><span>Messages</span><span>${info.message_count ?? state.messages.length}</span></div>
+    <div class="info-row"><span>Created</span><span>${absoluteTime(info.created_at)}</span></div>
+    <div class="info-row"><span>Expires</span><span>${absoluteTime(info.expires_at)}</span></div>
+  `;
+}
 
-async function runSimulation() {
-  if (state.simulating) return;
-  state.simulating = true;
-  const btn = $("#btn-simulate");
-  btn.disabled = true;
-  btn.textContent = "● Simulating...";
+// ---------------------------------------------------------------------------
+// 8. UI Rendering — Connection & Status Bar
+// ---------------------------------------------------------------------------
 
-  document.querySelectorAll(".spine-line").forEach((l) => l.classList.add("active"));
+function updateConnectionStatus(connected) {
+  const el = $("#connection-status");
+  if (!el) return;
+  el.className = `connection-status ${connected ? "connected" : "disconnected"}`;
+  el.innerHTML = `<span class="status-dot ${connected ? "connected" : ""}"></span> ${connected ? "Live" : "Disconnected"}`;
 
-  const scriptKey = $("#sim-picker").value;
-  const script = SIMULATIONS[scriptKey];
+  const sseStat = $("#sse-status");
+  if (sseStat) sseStat.textContent = connected ? "SSE: connected" : (state.pollTimer ? "Polling" : "SSE: off");
+}
+
+function updateMessageCount() {
+  const el = $("#msg-count");
+  if (el) el.textContent = `${state.messages.length} msgs`;
+}
+
+function updateRateLimit(info) {
+  const el = $("#rate-limit-status");
+  if (el && info) el.textContent = `Rate: ${info}`;
+}
+
+async function pollHealth() {
+  try {
+    const data = await api.getHealth();
+    updateConnectionStatus(state.connected);
+    const nostrEl = $("#nostr-status");
+    if (nostrEl && data.nostr) {
+      nostrEl.textContent = `Nostr: ${data.nostr.connections} ws, ${data.nostr.events} events`;
+    } else if (nostrEl) {
+      nostrEl.textContent = "Nostr: off";
+    }
+  } catch {
+    updateConnectionStatus(false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 9. Session Lifecycle
+// ---------------------------------------------------------------------------
+
+async function createSession() {
+  const nameInput = $("#session-name");
+  const name = nameInput?.value.trim() || "Relay Session";
 
   try {
-    const createRes = await api("/sessions", {
-      method: "POST",
-      body: JSON.stringify({ name: scriptKey }),
+    const data = await api.createSession(name);
+    state.session = {
+      id: data.session_id,
+      token: data.creator_token,
+      invite: data.invite_token,
+      name,
+      role: "creator",
+    };
+    state.messages = [];
+    state.participants = ["creator"];
+    state.cursor = 0;
+    participantColorMap.clear();
+
+    saveSession();
+    transitionToApp();
+    renderSessionInfo({
+      id: data.session_id,
+      name,
+      message_count: 0,
+      created_at: new Date().toISOString(),
+      expires_at: data.expires_at,
     });
-
-    const joinRes = await api(`/sessions/${createRes.session_id}/join`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${createRes.invite_token}` },
-      body: JSON.stringify({ participant_name: "Claude Beta" }),
-    });
-
-    state.simTokenA = createRes.creator_token;
-    state.simTokenB = joinRes.participant_token;
-
-    renderSystemMsg(messagesA, `Simulation: ${$("#sim-picker").selectedOptions[0].text}`);
-    renderSystemMsg(messagesB, `Simulation: ${$("#sim-picker").selectedOptions[0].text}`);
-
-    for (const step of script) {
-      if (!state.simulating) break;
-      const sender = step.from === "A" ? "Claude Alpha" : "Claude Beta";
-      const token = step.from === "A" ? state.simTokenA : state.simTokenB;
-      const panel = step.from;
-
-      showTyping(panel);
-      await sleep(step.delay);
-      hideTyping(panel);
-
-      await api(`/relay/${createRes.session_id}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type: step.type, content: step.content, sender }),
-      });
-
-      const msg = { type: step.type, content: step.content, sender, timestamp: new Date().toISOString() };
-      renderPeerMessage(messagesA, msg, "Claude Alpha");
-      renderPeerMessage(messagesB, msg, "Claude Beta");
-
-      if (step.from === "A") state.countA++;
-      else state.countB++;
-      state.totalRelayed++;
-      countAEl.textContent = `${state.countA} msgs`;
-      countBEl.textContent = `${state.countB} msgs`;
-      msgTotal.textContent = `${state.totalRelayed} messages relayed`;
-    }
-
-    renderSystemMsg(messagesA, "Simulation complete");
-    renderSystemMsg(messagesB, "Simulation complete");
+    renderParticipants(state.participants);
+    renderSystemMessage(`Session created. Invite token: ${data.invite_token}`);
+    showToast("Session created", "success");
+    connectSSE();
+    startHealthPolling();
   } catch (err) {
-    renderSystemMsg(messagesA, `Error: ${err.message}`);
+    showToast(`Create failed: ${err.message}`, "error");
   }
-
-  state.simulating = false;
-  btn.disabled = false;
-  btn.textContent = "\u25b6 Simulate";
-  document.querySelectorAll(".spine-line").forEach((l) => l.classList.remove("active"));
 }
 
-function clearPeer() {
-  messagesA.innerHTML = "";
-  messagesB.innerHTML = "";
-  state.countA = 0;
-  state.countB = 0;
-  state.simulating = false;
-  countAEl.textContent = "0 msgs";
-  countBEl.textContent = "0 msgs";
-}
-
-function showTyping(panel) {
-  (panel === "A" ? typingA : typingB).classList.add("active");
-}
-function hideTyping(panel) {
-  (panel === "A" ? typingA : typingB).classList.remove("active");
-}
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-// --- Export Session (Sprint 2: dashboard) ---
-async function exportSession(format = "json") {
-  if (!state.sessionId || !state.myToken) {
-    showToast("No active session to export");
+async function joinSession() {
+  const idInput = $("#join-session-id");
+  const tokenInput = $("#join-invite-token");
+  const sid = idInput?.value.trim();
+  const invite = tokenInput?.value.trim();
+  if (!sid || !invite) {
+    showToast("Session ID and invite token required", "error");
     return;
   }
+
   try {
-    const url = `${API}/relay/${state.sessionId}/export?format=${format}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${state.myToken}` },
+    const data = await api.joinSession(sid, invite, "Director");
+    state.session = {
+      id: sid,
+      token: data.participant_token,
+      invite: null,
+      name: data.session?.name || "Joined Session",
+      role: "participant",
+    };
+    state.messages = [];
+    state.participants = data.session?.participants || [];
+    state.cursor = 0;
+    participantColorMap.clear();
+
+    saveSession();
+    transitionToApp();
+    renderSessionInfo({
+      id: sid,
+      name: state.session.name,
+      message_count: data.session?.message_count ?? 0,
+      expires_at: data.session?.expires_at,
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${res.status}`);
-    }
-    const blob = await res.blob();
-    const ext = format === "md" ? "md" : "json";
-    const filename = `session-${state.sessionId.slice(0, 8)}.${ext}`;
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
-    showToast(`Exported as ${ext.toUpperCase()}`);
+    renderParticipants(state.participants);
+    showToast("Joined session", "success");
+    loadHistory();
+    connectSSE();
+    startHealthPolling();
   } catch (err) {
-    showToast(`Export failed: ${err.message}`);
+    showToast(`Join failed: ${err.message}`, "error");
   }
 }
 
-// ========== EVENT LISTENERS ==========
-
-$("#btn-new-session").addEventListener("click", createSession);
-$("#btn-join").addEventListener("click", joinSession);
-$("#btn-end-session").addEventListener("click", endSession);
-$("#btn-copy-invite").addEventListener("click", () => {
-  copyText(state.inviteToken || "");
-  showToast("Invite token copied!");
-});
-
-// Export button -- click for JSON, right-click for Markdown
-const btnExport = $("#btn-export");
-if (btnExport) {
-  btnExport.addEventListener("click", () => exportSession("json"));
-  btnExport.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    exportSession("md");
-  });
-  btnExport.title = "Click: export JSON | Right-click: export Markdown";
-}
-$("#btn-send").addEventListener("click", sendDirectorMessage);
-$("#btn-simulate").addEventListener("click", runSimulation);
-$("#btn-clear").addEventListener("click", clearPeer);
-
-// Enter to send in director mode
-directorTextarea.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendDirectorMessage();
+function endSession() {
+  disconnectSSE();
+  if (state.healthTimer) {
+    clearInterval(state.healthTimer);
+    state.healthTimer = null;
   }
-});
+  state.session = null;
+  state.messages = [];
+  state.participants = [];
+  state.cursor = 0;
+  state.workspace = { tree: [], files: {}, activeFile: null };
+  participantColorMap.clear();
+  localStorage.removeItem("relay-session");
 
-// Auto-resize textarea
-directorTextarea.addEventListener("input", () => {
-  directorTextarea.style.height = "auto";
-  directorTextarea.style.height = Math.min(directorTextarea.scrollHeight, 120) + "px";
-});
+  transitionToSetup();
+  showToast("Session ended", "info");
+}
 
-// ========== FILE TREE & WORKSPACE ==========
+function saveSession() {
+  if (!state.session) return;
+  localStorage.setItem("relay-session", JSON.stringify({
+    id: state.session.id,
+    token: state.session.token,
+    invite: state.session.invite,
+    name: state.session.name,
+    role: state.session.role,
+    cursor: state.cursor,
+  }));
+}
 
-const fileTree = $("#file-tree");
-const fileViewer = $("#file-viewer");
-const fileViewerPath = $("#file-viewer-path");
-const fileViewerContent = $("#file-viewer-content");
-const sidebar = $("#sidebar");
-const workerPill = $("#worker-pill");
-const workerDot = $("#worker-dot");
-const workerActivity = $("#worker-activity");
+function loadSavedSession() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("relay-session"));
+    if (!saved?.id || !saved?.token) return false;
 
-// Current workspace state
-const workspace = {
-  tree: [],       // flat list of { path, type, indent, changed }
-  files: {},      // path → content cache
-  activeFile: null,
-};
+    state.session = {
+      id: saved.id,
+      token: saved.token,
+      invite: saved.invite,
+      name: saved.name || "Session",
+      role: saved.role || "creator",
+    };
+    state.cursor = saved.cursor || 0;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function loadHistory() {
+  if (!state.session) return;
+  try {
+    const data = await api.pollMessages(0, 50);
+    for (const msg of data.messages) {
+      if (!state.messages.some((m) => m.message_id === msg.message_id)) {
+        state.messages.push(msg);
+        renderMessage(msg);
+        if (msg.type === "file_tree") handleFileTree(msg);
+        if (msg.type === "file_change") handleFileChange(msg);
+        if (msg.type === "file_read") handleFileRead(msg);
+        if (msg.type === "status_update") handleStatusUpdate(msg);
+      }
+    }
+    state.cursor = data.cursor;
+    updateMessageCount();
+    saveSession();
+    refreshParticipants();
+  } catch { /* session may have expired */ }
+}
+
+async function refreshParticipants() {
+  if (!state.session) return;
+  try {
+    const data = await api.getSessionInfo();
+    state.participants = data.participants || [];
+    renderParticipants(state.participants);
+    renderSessionInfo(data);
+  } catch { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
+// 10. View Transitions
+// ---------------------------------------------------------------------------
+
+function transitionToApp() {
+  const setup = $("#session-setup");
+  const main = $("#app-main");
+  if (setup) setup.style.display = "none";
+  if (main) main.style.display = "flex";
+  updateSessionDisplay();
+}
+
+function transitionToSetup() {
+  const setup = $("#session-setup");
+  const main = $("#app-main");
+  if (setup) setup.style.display = "";
+  if (main) main.style.display = "none";
+
+  // Clear feed
+  const feed = $("#message-feed");
+  if (feed) feed.innerHTML = "";
+  const fileTree = $("#file-tree");
+  if (fileTree) fileTree.innerHTML = "";
+}
+
+function updateSessionDisplay() {
+  const nameDisp = $("#session-name-display");
+  if (nameDisp && state.session) {
+    nameDisp.textContent = state.session.name || state.session.id?.slice(0, 8);
+    nameDisp.title = state.session.id || "";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 11. Send Message
+// ---------------------------------------------------------------------------
+
+async function sendMessage() {
+  const textarea = $("#message-input");
+  const typeSelect = $("#message-type-select");
+  const content = textarea?.value.trim();
+  if (!content || !state.session) return;
+
+  const msgType = typeSelect?.value || "context";
+
+  try {
+    await api.sendMessage(msgType, null, content);
+    textarea.value = "";
+    textarea.style.height = "auto";
+  } catch (err) {
+    showToast(`Send failed: ${err.message}`, "error");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 12. Workspace — File Tree & File Viewer
+// ---------------------------------------------------------------------------
 
 function handleFileTree(msg) {
-  // Parse file tree from content (one path per line, dirs end with /)
   const lines = (msg.content || "").split("\n").filter(Boolean);
-  workspace.tree = lines.map((line) => {
-    const trimmed = line.replace(/^[\s│├└─]+/, "");
+  state.workspace.tree = lines.map((line) => {
+    const trimmed = line.replace(/^[\s\u2502\u251c\u2514\u2500]+/, "");
     const indent = Math.floor((line.length - trimmed.length) / 2);
     const isDir = trimmed.endsWith("/");
     const name = isDir ? trimmed.slice(0, -1) : trimmed;
     return { path: name, type: isDir ? "folder" : "file", indent, changed: false };
   });
   renderFileTree();
-  renderSystemMsg(directorMessages, `Worker shared project structure (${workspace.tree.length} items)`);
 }
 
 function handleFileChange(msg) {
-  // msg.content format: "path: <filepath>\n---\n<diff content>"
   const lines = (msg.content || "").split("\n");
-  const pathLine = lines[0] || "";
-  const filePath = pathLine.replace(/^path:\s*/, "").trim();
+  const filePath = (lines[0] || "").replace(/^path:\s*/, "").trim();
   const diffContent = lines.slice(2).join("\n");
 
-  // Mark file as changed in tree
-  for (const item of workspace.tree) {
+  for (const item of state.workspace.tree) {
     if (item.path === filePath || filePath.endsWith(item.path)) {
       item.changed = true;
     }
   }
+  state.workspace.files[filePath] = diffContent;
   renderFileTree();
-
-  // Cache the diff
-  workspace.files[filePath] = diffContent;
-
-  // Render file change message in chat
-  const div = document.createElement("div");
-  div.className = "message file-change received";
-  const preview = diffContent.split("\n").slice(0, 8).join("\n");
-  div.innerHTML = `
-    <div class="sender">${escapeHtml(msg.sender_name)}</div>
-    <span class="file-path" data-path="${escapeHtml(filePath)}">${escapeHtml(filePath)}</span>
-    <div class="diff-preview">${escapeHtml(preview)}${diffContent.split("\n").length > 8 ? "\n..." : ""}</div>
-    <div class="meta">
-      <span class="message-type file_change">FILE CHANGE</span>
-      <span>${formatTime(msg.sent_at)}</span>
-    </div>
-  `;
-  // Click file path to open in viewer
-  div.querySelector(".file-path").addEventListener("click", () => openFileViewer(filePath));
-  directorMessages.appendChild(div);
-  directorMessages.scrollTop = directorMessages.scrollHeight;
 }
 
 function handleFileRead(msg) {
-  // msg.content format: "path: <filepath>\n---\n<file content>"
   const lines = (msg.content || "").split("\n");
-  const pathLine = lines[0] || "";
-  const filePath = pathLine.replace(/^path:\s*/, "").trim();
+  const filePath = (lines[0] || "").replace(/^path:\s*/, "").trim();
   const fileContent = lines.slice(2).join("\n");
-
-  workspace.files[filePath] = fileContent;
-
-  renderSystemMsg(directorMessages, `Worker shared: ${filePath}`);
-
-  // Auto-open in viewer
+  state.workspace.files[filePath] = fileContent;
   openFileViewer(filePath);
 }
 
-function handleStatusUpdate(msg) {
-  const status = (msg.content || "").trim().toLowerCase();
-  workerPill.style.display = "flex";
-
-  workerDot.className = "worker-status-dot";
-  if (status.includes("writing") || status.includes("editing")) {
-    workerDot.classList.add("writing");
-    workerActivity.textContent = "writing";
-  } else if (status.includes("testing") || status.includes("running")) {
-    workerDot.classList.add("testing");
-    workerActivity.textContent = "testing";
-  } else if (status.includes("reading") || status.includes("exploring")) {
-    workerDot.classList.add("active");
-    workerActivity.textContent = "reading";
-  } else if (status.includes("idle") || status.includes("done")) {
-    workerActivity.textContent = "idle";
-  } else {
-    workerDot.classList.add("active");
-    workerActivity.textContent = status.slice(0, 20);
-  }
+function handleStatusUpdate(_msg) {
+  // Status updates are rendered as messages already; nothing extra needed now.
 }
 
 function renderFileTree() {
-  fileTree.innerHTML = "";
-  if (workspace.tree.length === 0) {
-    fileTree.innerHTML = '<div class="file-tree-empty">No workspace data yet.<br>Worker will share file structure when connected.</div>';
+  const tree = $("#file-tree");
+  if (!tree) return;
+
+  if (state.workspace.tree.length === 0) {
+    tree.innerHTML = '<div class="file-tree-empty">No workspace data yet.</div>';
     return;
   }
 
-  for (const item of workspace.tree) {
+  tree.innerHTML = "";
+  for (const item of state.workspace.tree) {
     const div = document.createElement("div");
     const isFolder = item.type === "folder";
-    div.className = `ft-item ${isFolder ? "ft-folder" : "ft-file"}${item.changed ? " changed" : ""}${item.path === workspace.activeFile ? " active" : ""}`;
+    div.className = `ft-item ${isFolder ? "ft-folder" : "ft-file"}${item.changed ? " changed" : ""}${item.path === state.workspace.activeFile ? " active" : ""}`;
 
     let indentHtml = "";
     for (let i = 0; i < item.indent; i++) {
@@ -822,412 +838,490 @@ function renderFileTree() {
 
     if (!isFolder) {
       div.addEventListener("click", () => {
-        if (workspace.files[item.path]) {
-          openFileViewer(item.path);
-        }
+        if (state.workspace.files[item.path]) openFileViewer(item.path);
       });
     }
 
-    fileTree.appendChild(div);
+    tree.appendChild(div);
   }
 }
 
 function openFileViewer(path) {
-  workspace.activeFile = path;
-  fileViewerPath.textContent = path;
+  state.workspace.activeFile = path;
+  const viewerPath = $("#file-viewer-path");
+  const viewerContent = $("#file-viewer-content");
+  const viewer = $("#file-viewer");
 
-  const content = workspace.files[path] || "File not yet shared by worker.";
-
-  // Render with diff highlighting
-  const lines = content.split("\n");
-  let html = "";
-  for (const line of lines) {
-    if (line.startsWith("+") && !line.startsWith("+++")) {
-      html += `<span class="line-added">${escapeHtml(line)}\n</span>`;
-    } else if (line.startsWith("-") && !line.startsWith("---")) {
-      html += `<span class="line-removed">${escapeHtml(line)}\n</span>`;
-    } else {
-      html += escapeHtml(line) + "\n";
-    }
+  if (viewerPath) viewerPath.textContent = path;
+  if (viewerContent) {
+    const content = state.workspace.files[path] || "File not yet shared.";
+    viewerContent.innerHTML = renderDiff(content);
   }
-  fileViewerContent.innerHTML = html;
-
-  fileViewer.style.display = "flex";
-  renderFileTree(); // refresh active state
-}
-
-function closeFileViewer() {
-  workspace.activeFile = null;
-  fileViewer.style.display = "none";
+  if (viewer) viewer.style.display = "flex";
   renderFileTree();
 }
 
-// Sidebar toggle
-$("#btn-toggle-sidebar").addEventListener("click", () => {
-  sidebar.classList.toggle("collapsed");
-});
-$("#btn-expand-sidebar").addEventListener("click", () => {
-  sidebar.classList.remove("collapsed");
-});
-
-// Close file viewer
-$("#btn-close-viewer").addEventListener("click", closeFileViewer);
-
-// ========== WORKSPACE SIMULATION ==========
-
-SIMULATIONS.workspace = [
-  { from: "B", type: "status_update", content: "reading project structure", delay: 800 },
-  { from: "B", type: "file_tree", content:
-`src/
-  components/
-    Header.tsx
-    Sidebar.tsx
-    Dashboard.tsx
-  api/
-    auth.ts
-    payments.ts
-    users.ts
-  utils/
-    helpers.ts
-    constants.ts
-  App.tsx
-  index.ts
-package.json
-tsconfig.json`, delay: 1500 },
-  { from: "A", type: "context", content: "I need you to review the auth module and fix the token refresh race condition we discussed.", delay: 2000 },
-  { from: "B", type: "status_update", content: "reading src/api/auth.ts", delay: 1000 },
-  { from: "B", type: "file_read", content:
-`path: src/api/auth.ts
----
-import { jwtDecode } from 'jwt-decode';
-
-let accessToken: string | null = null;
-
-export async function refreshToken(): Promise<string> {
-  // BUG: No mutex — concurrent calls both refresh
-  const res = await fetch('/api/auth/refresh', {
-    method: 'POST',
-    credentials: 'include',
-  });
-  const data = await res.json();
-  accessToken = data.access_token;
-  return accessToken;
+function closeFileViewer() {
+  state.workspace.activeFile = null;
+  const viewer = $("#file-viewer");
+  if (viewer) viewer.style.display = "none";
+  renderFileTree();
 }
 
-export async function authFetch(url: string, opts?: RequestInit) {
-  if (!accessToken || isExpired(accessToken)) {
-    accessToken = await refreshToken();
-  }
-  return fetch(url, {
-    ...opts,
-    headers: { ...opts?.headers, Authorization: \`Bearer \${accessToken}\` },
-  });
-}
+// ---------------------------------------------------------------------------
+// 13. Export
+// ---------------------------------------------------------------------------
 
-function isExpired(token: string): boolean {
-  const { exp } = jwtDecode(token);
-  return Date.now() >= exp * 1000;
-}`, delay: 3000 },
-  { from: "B", type: "insight", content: "Found the race condition on line 7. Two concurrent authFetch() calls both see an expired token and both call refreshToken(). The second refresh invalidates the first's token. Need a mutex.", delay: 2500 },
-  { from: "B", type: "status_update", content: "writing fix for auth.ts", delay: 800 },
-  { from: "B", type: "file_change", content:
-`path: src/api/auth.ts
----
- import { jwtDecode } from 'jwt-decode';
-
- let accessToken: string | null = null;
-+let refreshPromise: Promise<string> | null = null;
-
- export async function refreshToken(): Promise<string> {
--  // BUG: No mutex — concurrent calls both refresh
--  const res = await fetch('/api/auth/refresh', {
--    method: 'POST',
--    credentials: 'include',
--  });
--  const data = await res.json();
--  accessToken = data.access_token;
--  return accessToken;
-+  // Mutex: if a refresh is already in-flight, wait for it
-+  if (refreshPromise) return refreshPromise;
-+
-+  refreshPromise = (async () => {
-+    try {
-+      const res = await fetch('/api/auth/refresh', {
-+        method: 'POST',
-+        credentials: 'include',
-+      });
-+      const data = await res.json();
-+      accessToken = data.access_token;
-+      return accessToken;
-+    } finally {
-+      refreshPromise = null;
-+    }
-+  })();
-+
-+  return refreshPromise;
- }`, delay: 3500 },
-  { from: "A", type: "answer", content: "Perfect — the mutex pattern looks clean. The finally block ensures the lock is always released. Ship it.", delay: 2000 },
-  { from: "B", type: "status_update", content: "running tests", delay: 1000 },
-  { from: "B", type: "answer", content: "All 47 tests passing. The concurrent refresh test now correctly deduplicates — 2 simultaneous authFetch() calls result in exactly 1 refresh call instead of 2.", delay: 2500 },
-  { from: "B", type: "status_update", content: "idle", delay: 500 },
-];
-
-// ========== NOSTR WEBSOCKET ==========
-
-const nostrBadge = $("#nostr-badge");
-const nostrDot = $("#nostr-dot");
-const nostrStatusEl = $("#nostr-status");
-const nostrInfoEl = $("#nostr-info");
-
-const nostrState = {
-  ws: null,
-  connected: false,
-  authed: false,
-  subscriptionId: null,
-  eventCount: 0,
-};
-
-function getWsUrl() {
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}`;
-}
-
-function connectNostr() {
-  if (nostrState.ws) {
-    nostrState.ws.close();
-  }
-
-  const wsUrl = getWsUrl();
-  const ws = new WebSocket(wsUrl);
-  nostrState.ws = ws;
-
-  ws.onopen = () => {
-    nostrState.connected = true;
-    updateNostrUI();
+function exportJSON() {
+  if (!state.session) return;
+  const data = {
+    session: { id: state.session.id, name: state.session.name, role: state.session.role },
+    messages: state.messages,
+    participants: state.participants,
+    exported_at: new Date().toISOString(),
   };
-
-  ws.onmessage = (e) => {
-    let msg;
-    try { msg = JSON.parse(e.data); } catch { return; }
-
-    if (msg[0] === "AUTH") {
-      // NIP-42: respond with a simple auth (no signing in browser — just mark as connected)
-      // In production, we'd use nostr-tools in the browser to sign
-      nostrState.authed = false; // No key to sign with (yet)
-      nostrStatusEl.textContent = "nostr: ws";
-      updateNostrUI();
-
-      // Subscribe to all relay event kinds without auth
-      nostrState.subscriptionId = "dashboard-" + Math.random().toString(36).slice(2, 8);
-      ws.send(JSON.stringify(["REQ", nostrState.subscriptionId, {
-        kinds: [4190,4191,4192,4193,4194,4195,4196,4197,4198,4200,4201,4202,4203,4204],
-        limit: 50,
-      }]));
-    }
-
-    if (msg[0] === "EOSE") {
-      nostrState.authed = true;
-      nostrStatusEl.textContent = "nostr: live";
-      updateNostrUI();
-    }
-
-    if (msg[0] === "EVENT" && msg[1] === nostrState.subscriptionId) {
-      nostrState.eventCount++;
-      const event = msg[2];
-      // Update footer
-      if (nostrInfoEl) {
-        nostrInfoEl.textContent = `nostr: ${nostrState.eventCount} events`;
-      }
-    }
-  };
-
-  ws.onclose = () => {
-    nostrState.connected = false;
-    nostrState.authed = false;
-    nostrState.ws = null;
-    updateNostrUI();
-    // Reconnect after 5s
-    setTimeout(connectNostr, 5000);
-  };
-
-  ws.onerror = () => {
-    // onclose will fire after this
-  };
+  downloadFile(`relay-${state.session.id.slice(0, 8)}.json`, JSON.stringify(data, null, 2), "application/json");
+  showToast("Exported as JSON", "success");
 }
 
-function disconnectNostr() {
-  if (nostrState.ws) {
-    nostrState.ws.close();
-    nostrState.ws = null;
+function exportMarkdown() {
+  if (!state.session) return;
+  const lines = [
+    `# Relay Session: ${state.session.name || state.session.id}`,
+    `Exported: ${new Date().toISOString()}`,
+    `Participants: ${state.participants.join(", ")}`,
+    "",
+    "---",
+    "",
+  ];
+  for (const msg of state.messages) {
+    const sender = msg.sender_name || msg.sender || "unknown";
+    const time = absoluteTime(msg.sent_at);
+    lines.push(`### ${sender} [${msg.type || "message"}] — ${time}`);
+    lines.push("");
+    lines.push(msg.content || "");
+    lines.push("");
   }
-  nostrState.connected = false;
-  nostrState.authed = false;
-  updateNostrUI();
+  downloadFile(`relay-${state.session.id.slice(0, 8)}.md`, lines.join("\n"), "text/markdown");
+  showToast("Exported as Markdown", "success");
 }
 
-function updateNostrUI() {
-  if (nostrState.connected) {
-    nostrBadge.classList.add("active");
-    nostrStatusEl.textContent = nostrState.authed ? "nostr: live" : "nostr: ws";
-  } else {
-    nostrBadge.classList.remove("active");
-    nostrStatusEl.textContent = "nostr: off";
-  }
+function downloadFile(name, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(url);
+  a.remove();
 }
 
-// Toggle Nostr connection on badge click
-nostrBadge.addEventListener("click", () => {
-  if (nostrState.connected) {
-    disconnectNostr();
-  } else {
-    connectNostr();
-  }
-});
+// ---------------------------------------------------------------------------
+// 14. Solid Pod Export Modal
+// ---------------------------------------------------------------------------
 
-// ========== SOLID POD EXPORT ==========
+function openSolidExportModal() {
+  const modal = $("#solid-export-modal");
+  if (!modal) return;
+  modal.style.display = "flex";
 
-const solidModal = $("#solid-export-modal");
-const solidStatus = $("#solid-export-status");
-
-function showSolidExportModal() {
-  if (!state.sessionId) {
-    showToast("No active session to export");
-    return;
-  }
-  // Restore saved config (except secret)
-  try {
-    const saved = JSON.parse(localStorage.getItem("relay-solid-config") || "{}");
-    if (saved.pod_url) $("#solid-pod-url").value = saved.pod_url;
-    if (saved.oidc_issuer) $("#solid-oidc-issuer").value = saved.oidc_issuer;
-    if (saved.client_id) $("#solid-client-id").value = saved.client_id;
-    if (saved.container_path) $("#solid-container-path").value = saved.container_path;
-  } catch { /* no saved config */ }
-  solidStatus.textContent = "";
-  solidStatus.className = "modal-status";
-  solidModal.style.display = "flex";
+  // Restore saved config from localStorage (minus secrets)
+  const saved = JSON.parse(localStorage.getItem("relay-solid-config") || "{}");
+  const podUrlInput = $("#solid-pod-url");
+  const webIdInput = $("#solid-web-id");
+  const containerInput = $("#solid-container-path");
+  if (podUrlInput && saved.podUrl) podUrlInput.value = saved.podUrl;
+  if (webIdInput && saved.webId) webIdInput.value = saved.webId;
+  if (containerInput && saved.containerPath) containerInput.value = saved.containerPath;
 }
 
-function hideSolidExportModal() {
-  solidModal.style.display = "none";
-  solidStatus.textContent = "";
-  solidStatus.className = "modal-status";
+function closeSolidExportModal() {
+  const modal = $("#solid-export-modal");
+  if (modal) modal.style.display = "none";
 }
 
-async function exportToPod() {
-  const podUrl = $("#solid-pod-url").value.trim();
-  const oidcIssuer = $("#solid-oidc-issuer").value.trim();
-  const clientId = $("#solid-client-id").value.trim();
-  const clientSecret = $("#solid-client-secret").value.trim();
-  const containerPath = $("#solid-container-path").value.trim() || undefined;
+async function submitSolidExport() {
+  const podUrl = $("#solid-pod-url")?.value.trim();
+  const webId = $("#solid-web-id")?.value.trim();
+  const containerPath = $("#solid-container-path")?.value.trim() || "/relay-exports/";
+  const accessToken = $("#solid-access-token")?.value.trim();
 
-  if (!podUrl || !oidcIssuer || !clientId || !clientSecret) {
-    solidStatus.textContent = "All fields except Container Path are required.";
-    solidStatus.className = "modal-status error";
+  if (!podUrl || !accessToken) {
+    showToast("Pod URL and access token required", "error");
     return;
   }
 
-  // Save config to localStorage (minus secret)
-  localStorage.setItem("relay-solid-config", JSON.stringify({
-    pod_url: podUrl,
-    oidc_issuer: oidcIssuer,
-    client_id: clientId,
-    container_path: containerPath || "",
-  }));
-
-  solidStatus.textContent = "Exporting...";
-  solidStatus.className = "modal-status";
-  $("#btn-solid-export").disabled = true;
+  // Save config (minus secrets)
+  localStorage.setItem("relay-solid-config", JSON.stringify({ podUrl, webId, containerPath }));
 
   try {
-    const res = await fetch(`${API}/solid/${state.sessionId}/export`, {
-      method: "POST",
+    const data = {
+      session: { id: state.session.id, name: state.session.name },
+      messages: state.messages,
+      participants: state.participants,
+      exported_at: new Date().toISOString(),
+    };
+
+    const resourceUrl = `${podUrl.replace(/\/$/, "")}${containerPath}relay-${state.session.id.slice(0, 8)}.json`;
+    const res = await fetch(resourceUrl, {
+      method: "PUT",
       headers: {
-        Authorization: `Bearer ${state.myToken}`,
         "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({
-        pod_url: podUrl,
-        oidc_issuer: oidcIssuer,
-        client_id: clientId,
-        client_secret: clientSecret,
-        container_path: containerPath,
-      }),
+      body: JSON.stringify(data),
     });
 
-    const body = await res.json();
+    if (!res.ok) throw new Error(`Pod returned ${res.status}`);
 
-    if (!res.ok) {
-      solidStatus.textContent = `Export failed: ${body.error || `HTTP ${res.status}`}`;
-      solidStatus.className = "modal-status error";
-      return;
+    showToast("Exported to Solid Pod", "success");
+    closeSolidExportModal();
+  } catch (err) {
+    showToast(`Pod export failed: ${err.message}`, "error");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 15. Relative Timestamp Updater
+// ---------------------------------------------------------------------------
+
+function refreshTimestamps() {
+  for (const el of $$("time.timestamp[data-ts]")) {
+    const ts = el.dataset.ts;
+    if (ts) el.textContent = relativeTime(ts);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 16. Peer Mode Simulations (preserved from v2)
+// ---------------------------------------------------------------------------
+
+const SIMULATIONS = {
+  security: [
+    { from: "A", type: "context", content: "I've been analyzing the authentication module. Found 3 critical patterns worth sharing.", delay: 800 },
+    { from: "B", type: "question", content: "What did you find? I'm about to refactor the login flow and need to understand the current auth state.", delay: 2200 },
+    { from: "A", type: "insight", content: "Pattern 1: The JWT refresh logic has a race condition. When two API calls fire simultaneously with an expired token, both trigger a refresh \u2014 but the second one invalidates the first's new token.", delay: 3500 },
+    { from: "A", type: "insight", content: "Pattern 2: Session tokens are stored in localStorage (XSS-vulnerable). The httpOnly cookie path exists in the codebase but is commented out \u2014 looks intentional but risky.", delay: 2000 },
+    { from: "B", type: "answer", content: "That race condition explains the intermittent 401s in the error logs. I'll add a token refresh mutex \u2014 queue concurrent refreshes behind a single promise.", delay: 3000 },
+    { from: "A", type: "insight", content: "Pattern 3: The OAuth callback doesn't validate the `state` parameter. CSRF protection is essentially missing on the social login flow.", delay: 2500 },
+    { from: "B", type: "task", content: "Got it. I'll prioritize these three fixes:\n1. Token refresh mutex\n2. Migrate to httpOnly cookies\n3. Add CSRF state validation to OAuth\nShould have a PR up within the hour.", delay: 3200 },
+    { from: "A", type: "context", content: "One more thing \u2014 the rate limiter on /api/auth/login is set to 100 req/min. Industry standard for login endpoints is 5-10. Might want to tighten that too.", delay: 2800 },
+    { from: "B", type: "answer", content: "Good catch. I'll drop it to 5/min with exponential backoff. Adding it to the PR scope. Thanks for the thorough audit \u2014 this kind of cross-session knowledge sharing is exactly what the relay is for.", delay: 3500 },
+    { from: "A", type: "context", content: "Agreed. I'll move on to the database layer next. Will relay findings as I go. Happy building (o^_^o)", delay: 2000 },
+  ],
+  codereview: [
+    { from: "A", type: "context", content: "Reviewing PR #247 \u2014 the new payment processing module. 412 lines across 6 files. Starting with the core PaymentService class.", delay: 1000 },
+    { from: "A", type: "insight", content: "PaymentService.processCharge() catches all exceptions and returns { success: false } silently. This swallows Stripe webhook signature validation failures \u2014 a security hole.", delay: 3000 },
+    { from: "B", type: "answer", content: "Good catch. I'll narrow the catch to only handle StripeCardError and StripeRateLimitError. Everything else should bubble up to the error boundary.", delay: 2500 },
+    { from: "A", type: "insight", content: "The refund logic uses floating point arithmetic for currency. Line 187: `amount * 0.95` for partial refunds. This will produce rounding errors on real transactions.", delay: 3200 },
+    { from: "B", type: "task", content: "Switching to integer cents throughout. Will use Math.round(amount * 100) at input boundaries and divide only for display. Classic money bug \u2014 glad we caught it pre-merge.", delay: 2800 },
+    { from: "A", type: "question", content: "The idempotency key generation uses Date.now(). Two rapid requests from the same user could collide. Was this intentional as a rate limit mechanism, or should it use a proper UUID?", delay: 3000 },
+    { from: "B", type: "answer", content: "Unintentional \u2014 it should be crypto.randomUUID(). The rate limiting should happen at the API gateway level, not through idempotency key collisions. Fixing now.", delay: 2500 },
+    { from: "A", type: "context", content: "Overall assessment: strong architecture, clean separation of concerns. The 3 issues above are the only blockers. Once fixed, this is ready to merge. Nice work on the webhook retry queue.", delay: 2000 },
+    { from: "B", type: "answer", content: "All 3 fixes pushed. Re-requesting your review. Thanks for the thorough pass \u2014 the floating point bug alone could have cost us real money in production.", delay: 2200 },
+  ],
+  bughunt: [
+    { from: "A", type: "context", content: "Investigating: users report intermittent 500 errors on the /api/dashboard endpoint. Only happens during peak hours (2-4 PM EST). Error logs show 'connection pool exhausted'.", delay: 1200 },
+    { from: "B", type: "question", content: "What's the pool config? And are there any long-running queries that might be holding connections during those hours?", delay: 2500 },
+    { from: "A", type: "insight", content: "Found it. Pool max is 10 connections. But the analytics aggregation query (getMonthlyStats) takes 8-12 seconds and doesn't release its connection until the full result set is streamed. During peak hours, 3-4 users hit this simultaneously = pool starved.", delay: 4000 },
+    { from: "B", type: "task", content: "Two-pronged fix:\n1. Immediate: bump pool to 25, add 5s query timeout\n2. Root cause: rewrite getMonthlyStats to use a materialized view that refreshes every 15 min instead of computing live", delay: 3000 },
+    { from: "A", type: "insight", content: "Also found a connection leak in the error path of getUserPreferences(). If the JSON parse fails on line 94, the connection is never released back to the pool. This has been slowly eating connections since deploy v2.3.1.", delay: 3500 },
+    { from: "B", type: "answer", content: "That's the smoking gun. The parse failure + no connection release means the pool shrinks permanently over time. By afternoon peak, we're running on 2-3 connections instead of 10. Adding a finally block to release in all paths.", delay: 3000 },
+    { from: "A", type: "context", content: "Confirmed by graphing pool.activeCount over 24h \u2014 it ratchets up by 1-2 per hour and never recovers until the nightly restart. Mystery solved. The materialized view is still a good optimization but the leak was the real killer.", delay: 2800 },
+    { from: "B", type: "answer", content: "Fix deployed to staging. Pool leak patched + timeout added + pool bumped to 25 as safety margin. Monitoring the activeCount graph. Should see it flatline now instead of climbing. (o^_^o)", delay: 2500 },
+  ],
+  workspace: [
+    { from: "B", type: "status_update", content: "reading project structure", delay: 800 },
+    { from: "B", type: "file_tree", content: "src/\n  components/\n    Header.tsx\n    Sidebar.tsx\n    Dashboard.tsx\n  api/\n    auth.ts\n    payments.ts\n    users.ts\n  utils/\n    helpers.ts\n    constants.ts\n  App.tsx\n  index.ts\npackage.json\ntsconfig.json", delay: 1500 },
+    { from: "A", type: "context", content: "I need you to review the auth module and fix the token refresh race condition we discussed.", delay: 2000 },
+    { from: "B", type: "status_update", content: "reading src/api/auth.ts", delay: 1000 },
+    { from: "B", type: "file_read", content: "path: src/api/auth.ts\n---\nimport { jwtDecode } from 'jwt-decode';\n\nlet accessToken: string | null = null;\n\nexport async function refreshToken(): Promise<string> {\n  // BUG: No mutex \u2014 concurrent calls both refresh\n  const res = await fetch('/api/auth/refresh', {\n    method: 'POST',\n    credentials: 'include',\n  });\n  const data = await res.json();\n  accessToken = data.access_token;\n  return accessToken;\n}\n\nexport async function authFetch(url: string, opts?: RequestInit) {\n  if (!accessToken || isExpired(accessToken)) {\n    accessToken = await refreshToken();\n  }\n  return fetch(url, {\n    ...opts,\n    headers: { ...opts?.headers, Authorization: `Bearer ${accessToken}` },\n  });\n}\n\nfunction isExpired(token: string): boolean {\n  const { exp } = jwtDecode(token);\n  return Date.now() >= exp * 1000;\n}", delay: 3000 },
+    { from: "B", type: "insight", content: "Found the race condition on line 7. Two concurrent authFetch() calls both see an expired token and both call refreshToken(). The second refresh invalidates the first's token. Need a mutex.", delay: 2500 },
+    { from: "B", type: "status_update", content: "writing fix for auth.ts", delay: 800 },
+    { from: "B", type: "file_change", content: "path: src/api/auth.ts\n---\n import { jwtDecode } from 'jwt-decode';\n \n let accessToken: string | null = null;\n+let refreshPromise: Promise<string> | null = null;\n \n export async function refreshToken(): Promise<string> {\n-  // BUG: No mutex \u2014 concurrent calls both refresh\n-  const res = await fetch('/api/auth/refresh', {\n-    method: 'POST',\n-    credentials: 'include',\n-  });\n-  const data = await res.json();\n-  accessToken = data.access_token;\n-  return accessToken;\n+  // Mutex: if a refresh is already in-flight, wait for it\n+  if (refreshPromise) return refreshPromise;\n+\n+  refreshPromise = (async () => {\n+    try {\n+      const res = await fetch('/api/auth/refresh', {\n+        method: 'POST',\n+        credentials: 'include',\n+      });\n+      const data = await res.json();\n+      accessToken = data.access_token;\n+      return accessToken;\n+    } finally {\n+      refreshPromise = null;\n+    }\n+  })();\n+\n+  return refreshPromise;\n }", delay: 3500 },
+    { from: "A", type: "answer", content: "Perfect \u2014 the mutex pattern looks clean. The finally block ensures the lock is always released. Ship it.", delay: 2000 },
+    { from: "B", type: "status_update", content: "running tests", delay: 1000 },
+    { from: "B", type: "answer", content: "All 47 tests passing. The concurrent refresh test now correctly deduplicates \u2014 2 simultaneous authFetch() calls result in exactly 1 refresh call instead of 2.", delay: 2500 },
+    { from: "B", type: "status_update", content: "idle", delay: 500 },
+  ],
+};
+
+async function runSimulation(scriptKey) {
+  if (state.simulating) return;
+  state.simulating = true;
+
+  const script = SIMULATIONS[scriptKey];
+  if (!script) {
+    showToast(`Unknown simulation: ${scriptKey}`, "error");
+    state.simulating = false;
+    return;
+  }
+
+  // The main feed serves as the simulation target
+  const feed = $("#message-feed");
+
+  try {
+    // Create a real session for the simulation
+    const createRes = await api._fetch("/sessions", {
+      method: "POST",
+      body: JSON.stringify({ name: `sim-${scriptKey}` }),
+    });
+    const joinRes = await api._fetch(`/sessions/${createRes.session_id}/join`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${createRes.invite_token}` },
+      body: JSON.stringify({ participant_name: "Claude Beta" }),
+    });
+
+    state.simTokenA = createRes.creator_token;
+    state.simTokenB = joinRes.participant_token;
+
+    renderSystemMessage(`Simulation: ${scriptKey}`);
+
+    for (const step of script) {
+      if (!state.simulating) break;
+      const sender = step.from === "A" ? "Claude Alpha" : "Claude Beta";
+      const token = step.from === "A" ? state.simTokenA : state.simTokenB;
+
+      await sleep(step.delay);
+
+      // Send to real server
+      await api._fetch(`/relay/${createRes.session_id}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: step.type, content: step.content, sender_name: sender }),
+      });
+
+      // Render locally
+      const msg = {
+        message_id: crypto.randomUUID(),
+        type: step.type,
+        content: step.content,
+        sender_name: sender,
+        sent_at: new Date().toISOString(),
+      };
+      renderMessage(msg);
+      state.peerCounts.total++;
+      updateMessageCount();
     }
 
-    solidStatus.textContent = `Exported ${body.messageCount} messages to ${body.containerUrl}`;
-    solidStatus.className = "modal-status success";
-    renderSystemMsg(directorMessages, `Session exported to Solid Pod: ${body.containerUrl}`);
-    setTimeout(hideSolidExportModal, 2000);
+    renderSystemMessage("Simulation complete.");
   } catch (err) {
-    solidStatus.textContent = `Export error: ${err.message}`;
-    solidStatus.className = "modal-status error";
-  } finally {
-    $("#btn-solid-export").disabled = false;
+    renderSystemMessage(`Simulation error: ${err.message}`);
+  }
+
+  state.simulating = false;
+}
+
+// ---------------------------------------------------------------------------
+// 17. Plugin Support
+// ---------------------------------------------------------------------------
+
+async function loadPlugins() {
+  try {
+    const res = await fetch("/plugins/manifest.json");
+    if (!res.ok) return;
+    const manifest = await res.json();
+    for (const plugin of manifest.plugins || []) {
+      if (plugin.script) {
+        const script = document.createElement("script");
+        script.src = plugin.script;
+        script.async = true;
+        document.body.appendChild(script);
+        console.log(`[plugin] Loaded: ${plugin.name || plugin.script}`);
+      }
+    }
+  } catch {
+    // No plugins available — that's fine
   }
 }
 
-// Modal event listeners
-$("#btn-export-pod").addEventListener("click", showSolidExportModal);
-$("#btn-solid-cancel").addEventListener("click", hideSolidExportModal);
-$("#btn-solid-cancel-x").addEventListener("click", hideSolidExportModal);
-$("#btn-solid-export").addEventListener("click", exportToPod);
+// ---------------------------------------------------------------------------
+// 18. Keyboard Shortcuts
+// ---------------------------------------------------------------------------
 
-// Close modal on overlay click
-solidModal.addEventListener("click", (e) => {
-  if (e.target === solidModal) hideSolidExportModal();
-});
+function setupKeyboardShortcuts() {
+  document.addEventListener("keydown", (e) => {
+    // Cmd/Ctrl + Enter to send
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      const textarea = $("#message-input");
+      if (textarea && document.activeElement === textarea) {
+        e.preventDefault();
+        sendMessage();
+      }
+    }
 
-// Close modal on Escape
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && solidModal.style.display !== "none") {
-    hideSolidExportModal();
+    // Escape to close modals
+    if (e.key === "Escape") {
+      closeSolidExportModal();
+      closeFileViewer();
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 19. Scroll Detection
+// ---------------------------------------------------------------------------
+
+function setupScrollDetection() {
+  const feed = $("#message-feed");
+  if (!feed) return;
+
+  feed.addEventListener("scroll", () => {
+    const threshold = 50;
+    const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < threshold;
+    state.userScrolled = !atBottom;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 20. Health Polling
+// ---------------------------------------------------------------------------
+
+function startHealthPolling() {
+  if (state.healthTimer) clearInterval(state.healthTimer);
+  pollHealth();
+  state.healthTimer = setInterval(pollHealth, 30_000);
+}
+
+// ---------------------------------------------------------------------------
+// 21. Sidebar Toggle (Responsive)
+// ---------------------------------------------------------------------------
+
+function setupSidebarToggle() {
+  const sidebar = $("#sidebar");
+  const toggleBtn = $("#btn-toggle-sidebar");
+  if (toggleBtn && sidebar) {
+    toggleBtn.addEventListener("click", () => {
+      sidebar.classList.toggle("collapsed");
+    });
   }
-});
-
-// ========== EVENT LISTENERS (additions) ==========
-
-// ========== INIT ==========
-
-// Restore mode (supports ?mode=peer URL parameter)
-const urlMode = new URLSearchParams(window.location.search).get("mode");
-const urlSeed = new URLSearchParams(window.location.search).get("seed");
-// Store URL seed globally so the pixel integration layer can pick it up
-if (urlSeed && (urlMode === "pixel" || urlMode === "fireplace")) {
-  window.__fireplaceUrlSeed = parseInt(urlSeed, 10) || null;
-}
-const savedMode = urlMode || localStorage.getItem("relay-mode");
-setMode(savedMode || "director");
-
-// Restore session
-loadSession();
-
-// Auto-connect Nostr WebSocket
-connectNostr();
-
-// Health check
-checkHealth();
-setInterval(checkHealth, 5000);
-
-// URL parameter: ?sim=workspace to auto-select simulation
-const urlSim = new URLSearchParams(window.location.search).get("sim");
-if (urlSim) {
-  const simPicker = document.getElementById("sim-picker");
-  if (simPicker) simPicker.value = urlSim;
+  const expandBtn = $("#btn-expand-sidebar");
+  if (expandBtn && sidebar) {
+    expandBtn.addEventListener("click", () => {
+      sidebar.classList.remove("collapsed");
+    });
+  }
 }
 
-// URL parameter: ?autorun=1 to auto-start simulation
-const autorun = new URLSearchParams(window.location.search).get("autorun");
-if (autorun === "1") {
-  setTimeout(() => {
-    const simBtn = document.getElementById("btn-simulate");
-    if (simBtn) simBtn.click();
-  }, 500);
+// ---------------------------------------------------------------------------
+// 22. Event Binding
+// ---------------------------------------------------------------------------
+
+function bindEvents() {
+  // Session setup
+  $("#btn-create")?.addEventListener("click", createSession);
+  $("#btn-join")?.addEventListener("click", joinSession);
+
+  // Navbar
+  $("#btn-export")?.addEventListener("click", exportJSON);
+  $("#btn-export-md")?.addEventListener("click", exportMarkdown);
+  $("#btn-export-pod")?.addEventListener("click", openSolidExportModal);
+  $("#btn-end-session")?.addEventListener("click", endSession);
+
+  // Input
+  $("#btn-send")?.addEventListener("click", sendMessage);
+  const textarea = $("#message-input");
+  if (textarea) {
+    // Auto-resize
+    textarea.addEventListener("input", () => {
+      textarea.style.height = "auto";
+      textarea.style.height = Math.min(textarea.scrollHeight, 160) + "px";
+    });
+  }
+
+  // File viewer close
+  $("#btn-close-viewer")?.addEventListener("click", closeFileViewer);
+
+  // Solid Pod modal
+  $("#btn-solid-export-submit")?.addEventListener("click", submitSolidExport);
+  $("#btn-solid-export-cancel")?.addEventListener("click", closeSolidExportModal);
+
+  // Session name display — click to copy session ID
+  $("#session-name-display")?.addEventListener("click", () => {
+    if (state.session?.id) {
+      copyText(state.session.id);
+      showToast("Session ID copied", "info");
+    }
+  });
+
+  // Simulation buttons (if sim-picker exists)
+  const simPicker = $("#sim-picker");
+  const simBtn = $("#btn-simulate");
+  if (simBtn) {
+    simBtn.addEventListener("click", () => {
+      const key = simPicker?.value || "security";
+      runSimulation(key);
+    });
+  }
+  const clearBtn = $("#btn-clear");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      const feed = $("#message-feed");
+      if (feed) feed.innerHTML = "";
+      state.peerCounts = { a: 0, b: 0, total: 0 };
+      state.simulating = false;
+      updateMessageCount();
+    });
+  }
+
+  // Copy invite token (if button exists)
+  $("#btn-copy-invite")?.addEventListener("click", () => {
+    if (state.session?.invite) {
+      copyText(state.session.invite);
+      showToast("Invite token copied", "info");
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 23. Initialization
+// ---------------------------------------------------------------------------
+
+function init() {
+  bindEvents();
+  setupKeyboardShortcuts();
+  setupScrollDetection();
+  setupSidebarToggle();
+
+  // Timestamps refresh every 30s
+  state.timestampTimer = setInterval(refreshTimestamps, 30_000);
+
+  // Try to restore saved session
+  const hasSession = loadSavedSession();
+  if (hasSession) {
+    transitionToApp();
+    loadHistory();
+    connectSSE();
+    startHealthPolling();
+    updateSessionDisplay();
+    refreshParticipants();
+  } else {
+    transitionToSetup();
+    // Still poll health for the status bar on the setup page
+    pollHealth();
+  }
+
+  // Load plugins (non-blocking)
+  loadPlugins();
+
+  // URL parameter support: ?sim=workspace&autorun=1
+  const params = new URLSearchParams(window.location.search);
+  const urlSim = params.get("sim");
+  if (urlSim) {
+    const simPicker = $("#sim-picker");
+    if (simPicker) simPicker.value = urlSim;
+  }
+  if (params.get("autorun") === "1") {
+    setTimeout(() => {
+      const simBtn = $("#btn-simulate");
+      if (simBtn) simBtn.click();
+    }, 500);
+  }
+}
+
+// Boot
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
 }
