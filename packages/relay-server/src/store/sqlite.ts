@@ -190,6 +190,10 @@ const stmts = {
     WHERE np.pubkey = $pubkey
   `),
 
+  getPubkeysForSession: db.prepare(`
+    SELECT pubkey, token FROM nostr_pubkeys WHERE session_id = $session_id
+  `),
+
   isCreatorToken: db.prepare(`
     SELECT 1 FROM sessions WHERE id = $session_id AND creator_token = $token LIMIT 1
   `),
@@ -264,6 +268,13 @@ function rowToSession(row: SessionRow): Session {
   }) as MessageRow[];
   const messages = mRows.map(rowToMessage);
 
+  // Load nostr pubkey bindings
+  const npRows = stmts.getPubkeysForSession.all({ $session_id: row.id }) as { pubkey: string; token: string }[];
+  const nostrPubkeys = new Map<string, string>();
+  for (const np of npRows) {
+    nostrPubkeys.set(np.pubkey, np.token);
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -275,6 +286,7 @@ function rowToSession(row: SessionRow): Session {
     createdAt: new Date(row.created_at),
     expiresAt: new Date(row.expires_at),
     lastActivityAt: new Date(row.last_activity_at),
+    nostrPubkeys,
   };
 }
 
