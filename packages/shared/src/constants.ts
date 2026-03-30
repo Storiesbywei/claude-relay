@@ -46,4 +46,6 @@ export const SENSITIVE_PATTERNS = [
   /\/Users\/[a-zA-Z0-9_-]+\//,            // macOS absolute paths
   /\/home\/[a-zA-Z0-9_-]+\//,             // Linux absolute paths
   /[A-Z]:\\/,                              // Windows absolute paths
+  /nsec1[a-z0-9]{58}/,                    // Nostr nsec private keys
+  /^[0-9a-f]{64}$/m,                      // Hex-encoded private keys (64 hex chars on own line)
 ];

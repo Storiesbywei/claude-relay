@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { RelayMessagePayloadSchema } from "@claude-relay/shared";
+import { RelayMessagePayloadSchema, scanContent } from "@claude-relay/shared";
 import type { StoredMessage } from "@claude-relay/shared";
 import { addMessage, getMessages, getSession, subscribe } from "../store/memory.js";
 import { streamSSE } from "hono/streaming";
@@ -23,6 +23,18 @@ relayRoutes.post("/:session_id", async (c) => {
       { error: "Invalid message payload", details: parsed.error.issues },
       400
     );
+  }
+
+  // Scan content for sensitive data before accepting the message
+  const allWarnings: string[] = [];
+  const contentScan = scanContent(parsed.data.content);
+  allWarnings.push(...contentScan.warnings);
+  if (parsed.data.title) {
+    const titleScan = scanContent(parsed.data.title);
+    allWarnings.push(...titleScan.warnings);
+  }
+  if (allWarnings.length > 0) {
+    return c.json({ error: "Content blocked", warnings: allWarnings }, 422);
   }
 
   const senderToken = c.get("token") as string;
