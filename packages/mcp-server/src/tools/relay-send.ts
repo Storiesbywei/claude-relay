@@ -8,6 +8,7 @@ import {
 } from "@claude-relay/shared";
 import { stageMessage, generatePreview } from "../approval/queue.js";
 import { hasAutoApprove } from "./relay-approve.js";
+import { scanContent, scanForToolUsePatterns, recordScanEvent } from "../approval/scanner.js";
 import { getActiveSession } from "../state.js";
 import * as client from "../client/relay-client.js";
 
@@ -92,10 +93,41 @@ export function registerSendTool(server: McpServer) {
 
       // ─── Auto-approve bypass for trusted agents ──────────────
       // If this agent has the auto_approve capability (Level 2 trusted),
-      // skip the approval queue entirely — send directly.
-      // This is the dangerouslySkipPermissions equivalent, granted
-      // explicitly by a human via the Capability Lattice.
+      // skip the approval QUEUE but NOT the content scanner.
+      // The scanner still runs to protect against adversarial payloads
+      // (prompt injection, steganography, exfiltration) — the diplomatic
+      // pouch problem: encrypting for surveillance protection must NOT
+      // disable injection protection. "Auto-approve" means no human
+      // review needed, NOT no safety inspection.
       if (hasAutoApprove(session_id)) {
+        // ── Client-side scan BEFORE send (even for trusted agents) ──
+        const contentScan = scanContent(content);
+        const titleScan = scanContent(title);
+        const toolUseScan = scanForToolUsePatterns(content);
+        const allWarnings = [...contentScan.warnings, ...titleScan.warnings];
+        const isSuspicious = toolUseScan.suspicious;
+
+        if (allWarnings.length > 0 || isSuspicious) {
+          recordScanEvent("mcp-trusted", "blocked", allWarnings.join("; "));
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: [
+                  `Auto-approve BLOCKED by content scanner (trusted agent bypass does not skip safety inspection).`,
+                  ``,
+                  `Warnings:`,
+                  ...allWarnings.map(w => `  - ${w}`),
+                  ...(isSuspicious ? [`  - Suspicious tool-use patterns: ${toolUseScan.patterns.join(", ")}`] : []),
+                  ``,
+                  `The message was not sent. Review the content and retry.`,
+                ].join("\n"),
+              },
+            ],
+            isError: true,
+          };
+        }
+
         try {
           let payloadToSend = { ...payload, origin: 'mcp' as const };
           let encrypted = false;
