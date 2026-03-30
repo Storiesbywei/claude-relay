@@ -39,12 +39,6 @@ interface ConnectionState {
 // All active WebSocket connections and their state
 const connections = new Map<ServerWebSocket<any>, ConnectionState>();
 
-// Global broadcast registry: all subscription managers for live EVENT relay
-const allSubscribers = new Set<{
-  ws: ServerWebSocket<any>;
-  state: ConnectionState;
-}>();
-
 // Callback for bridging Nostr events to HTTP session store
 type EventCallback = (event: NostrEvent) => void;
 let onRelayEvent: EventCallback | null = null;
@@ -98,7 +92,6 @@ export function handleOpen(ws: ServerWebSocket<any>): void {
     msgWindowStart: Date.now(),
   };
   connections.set(ws, state);
-  allSubscribers.add({ ws, state });
 
   // Send NIP-42 AUTH challenge
   send(ws, ["AUTH", challenge]);
@@ -111,13 +104,6 @@ export function handleClose(ws: ServerWebSocket<any>): void {
     state.subscriptions.clear();
   }
   connections.delete(ws);
-  // FIX: Use connections Map for cleanup instead of linear scan
-  for (const entry of allSubscribers) {
-    if (entry.ws === ws) {
-      allSubscribers.delete(entry);
-      break;
-    }
-  }
 }
 
 /** Called when a WebSocket message arrives */
@@ -337,7 +323,7 @@ function handleAuth(
 
 /** Broadcast an event to all WebSocket subscribers with matching filters */
 export function broadcastEvent(event: NostrEvent): void {
-  for (const { ws: subWs, state: subState } of allSubscribers) {
+  for (const [subWs, subState] of connections) {
     for (const sub of subState.subscriptions.getAll()) {
       if (matchesSubscription(event, sub)) {
         send(subWs, ["EVENT", sub.id, event]);
