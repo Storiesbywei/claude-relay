@@ -18,6 +18,7 @@ import { disconnectAll as disconnectRelayPool, setPoolKeypair, shutdownPool } fr
 import { nostrRelayRoutes } from "./routes/nostr-relays.js";
 import { solidRoutes } from "./routes/solid.js";
 import { clearSessionCache } from "./solid/auth.js";
+import { notificationPool } from "./solid/notification-pool.js";
 
 const app = new Hono();
 
@@ -108,6 +109,7 @@ const shutdown = () => {
   clearInterval(sweepInterval);
   disconnectRelayPool();
   shutdownPool();
+  notificationPool.shutdown();
   clearSessionCache();
   console.log("\n[relay] Shutting down...");
   process.exit(0);
