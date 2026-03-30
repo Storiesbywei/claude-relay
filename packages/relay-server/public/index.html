@@ -3,173 +3,410 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Claude Relay — Live Dashboard</title>
+  <meta name="color-scheme" content="dark light">
+  <title>Claude Relay</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <div class="app">
-    <!-- Top Bar -->
-    <header class="topbar">
-      <div class="topbar-left">
-        <span class="logo">&#x27e1; Claude Relay</span>
-        <span class="session-badge" id="session-badge">no session</span>
-      </div>
 
-      <div class="topbar-center">
-        <!-- Mode Toggle -->
-        <div class="mode-toggle" id="mode-toggle">
-          <span class="mode-label" data-mode="director">Director</span>
-          <div class="toggle-track">
-            <div class="toggle-thumb"></div>
+    <!-- ====== Session Setup (shown before session is active) ====== -->
+    <div class="session-setup" id="session-setup" style="display:none">
+      <div class="session-setup__container">
+        <div class="session-setup__brand">
+          <span class="session-setup__logo" aria-hidden="true">&#x27e1;</span>
+          <h1 class="session-setup__heading">Claude Relay</h1>
+          <p class="session-setup__subheading">Real-time collaboration between human directors and AI agents</p>
+        </div>
+
+        <div class="session-setup__cards">
+          <!-- Create Session Card -->
+          <div class="card">
+            <div class="card__header">
+              <h2 class="card__title">New Session</h2>
+              <p class="card__description">Start a collaboration workspace</p>
+            </div>
+            <div class="card__body">
+              <label class="field">
+                <span class="field__label">Session Name</span>
+                <input type="text" class="field__input" id="session-name"
+                       placeholder="Director Session" value="Director Session"
+                       aria-label="Session name">
+              </label>
+              <label class="field">
+                <span class="field__label">Time to Live</span>
+                <select class="field__select" id="session-ttl" aria-label="Time to live">
+                  <option value="30">30 minutes</option>
+                  <option value="60" selected>1 hour</option>
+                  <option value="120">2 hours</option>
+                  <option value="480">8 hours</option>
+                  <option value="1440">24 hours</option>
+                </select>
+              </label>
+            </div>
+            <div class="card__footer">
+              <button class="btn btn--primary btn--full-width" id="btn-create"
+                      aria-label="Create new session">
+                Create Session
+              </button>
+            </div>
           </div>
-          <span class="mode-label" data-mode="peer">Peer</span>
-        </div>
-      </div>
 
-      <div class="topbar-right">
-        <div class="worker-status-pill" id="worker-pill" style="display:none">
-          <span class="worker-status-dot" id="worker-dot"></span>
-          <span id="worker-activity">idle</span>
-        </div>
-        <span class="nostr-badge" id="nostr-badge" title="Nostr WebSocket status">
-          <span class="nostr-dot" id="nostr-dot"></span>
-          <span id="nostr-status">nostr: off</span>
-        </span>
-        <span class="status-dot" id="status-dot"></span>
-        <span id="status-text">disconnected</span>
-      </div>
-    </header>
+          <div class="session-setup__divider">
+            <span>or</span>
+          </div>
 
-    <!-- Session Bar -->
-    <div class="session-bar" id="session-bar">
-      <button id="btn-new-session" class="btn btn-primary">+ New Session</button>
-      <div class="session-controls" id="session-controls" style="display:none">
-        <span class="invite-label">Invite token:</span>
-        <code class="invite-token" id="invite-token"></code>
-        <button class="btn btn-ghost btn-sm" id="btn-copy-invite">Copy</button>
-        <span class="divider">|</span>
-        <button class="btn btn-ghost btn-sm" id="btn-end-session">End</button>
-      </div>
-      <div class="join-controls" id="join-controls" style="display:none">
-        <input type="text" id="join-session-id" placeholder="Session ID" class="input-sm">
-        <input type="text" id="join-invite-token" placeholder="Invite token" class="input-sm">
-        <button class="btn btn-ghost btn-sm" id="btn-join">Join</button>
-      </div>
-      <!-- Peer mode buttons -->
-      <div class="peer-controls" id="peer-controls" style="display:none">
-        <select id="sim-picker" class="input-sm">
-          <option value="security">Security Audit Handoff</option>
-          <option value="codereview">Code Review Handoff</option>
-          <option value="bughunt">Bug Hunt Collab</option>
-          <option value="workspace">Workspace Demo (with files)</option>
-        </select>
-        <button id="btn-simulate" class="btn btn-accent">&#x25b6; Simulate</button>
-        <button id="btn-clear" class="btn btn-ghost btn-sm">Clear</button>
+          <!-- Join Session Card -->
+          <div class="card">
+            <div class="card__header">
+              <h2 class="card__title">Join Session</h2>
+              <p class="card__description">Connect to an existing workspace</p>
+            </div>
+            <div class="card__body">
+              <label class="field">
+                <span class="field__label">Session ID</span>
+                <input type="text" class="field__input" id="join-session-id"
+                       placeholder="Paste session ID" aria-label="Session ID">
+              </label>
+              <label class="field">
+                <span class="field__label">Invite Token</span>
+                <input type="text" class="field__input" id="join-invite-token"
+                       placeholder="Paste invite token" aria-label="Invite token">
+              </label>
+            </div>
+            <div class="card__footer">
+              <button class="btn btn--ghost btn--full-width" id="btn-join"
+                      aria-label="Join existing session">
+                Join Session
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- ============ DIRECTOR MODE ============ -->
-    <main class="director-view" id="director-view">
-      <!-- File Tree Sidebar -->
-      <aside class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-          <span class="sidebar-title">Workspace</span>
-          <button class="btn-icon" id="btn-toggle-sidebar" title="Toggle sidebar">&#x25e8;</button>
-        </div>
-        <div class="file-tree" id="file-tree">
-          <div class="file-tree-empty">No workspace data yet.<br>Worker will share file structure when connected.</div>
-        </div>
-      </aside>
+    <!-- ====== Main App (hidden until session active) ====== -->
+    <div id="app-main" style="display:none">
 
-      <!-- Sidebar Expand Tab (visible when sidebar is collapsed) -->
-      <button class="sidebar-expand-tab" id="btn-expand-sidebar" title="Show workspace sidebar">&#x25e8;</button>
+      <!-- ====== Navigation Bar ====== -->
+      <nav class="nav-bar" id="navbar" role="navigation" aria-label="Session navigation">
+        <div class="nav-bar__leading">
+          <span class="nav-bar__logo" aria-hidden="true">&#x27e1;</span>
+          <h1 class="nav-bar__title">Claude Relay</h1>
+          <button class="nav-bar__session-badge" id="session-badge"
+                  aria-label="Session ID: none">
+            <span id="session-name-display">no session</span>
+          </button>
+        </div>
 
-      <!-- Chat + File Viewer -->
-      <div class="director-main">
-        <!-- Chat Panel -->
-        <div class="director-chat" id="director-chat">
-          <div class="director-header">
-            <div class="avatar avatar-worker">W</div>
-            <div class="panel-info">
-              <h2 id="worker-name">Waiting for worker...</h2>
-              <span class="role-tag" id="worker-status">no one connected</span>
-            </div>
-            <div class="msg-count" id="director-count">0 msgs</div>
+        <div class="nav-bar__center">
+          <div class="segmented-control" id="mode-toggle" role="tablist">
+            <button class="segmented-control__item segmented-control__item--active"
+                    role="tab" aria-selected="true" data-mode="director">
+              Director
+            </button>
+            <button class="segmented-control__item"
+                    role="tab" aria-selected="false" data-mode="peer">
+              Peer
+            </button>
           </div>
-          <div class="messages" id="director-messages"></div>
-          <div class="typing-indicator" id="director-typing">
+        </div>
+
+        <div class="nav-bar__trailing">
+          <div class="worker-status-pill" id="worker-pill" style="display:none">
+            <span class="worker-status-dot" id="worker-dot"></span>
+            <span id="worker-activity">idle</span>
+          </div>
+
+          <div id="connection-status" class="nav-bar__trailing" style="display:inline-flex; align-items:center; gap:6px;">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text" class="visually-hidden">disconnected</span>
+          </div>
+
+          <div class="participant-stack" id="participant-avatars"
+               aria-label="Connected participants">
+            <!-- Avatars populated by JS -->
+          </div>
+
+          <div class="nav-bar__actions">
+            <button class="btn-icon" id="btn-export"
+                    aria-label="Export session" title="Export (JSON)">&#x2913;</button>
+            <button class="btn-icon" id="btn-export-pod"
+                    aria-label="Export to Solid Pod" title="Export to Solid Pod">&#x2601;</button>
+            <button class="btn-icon" id="btn-settings"
+                    aria-label="Session settings" title="Settings">&#x2699;</button>
+            <button class="btn-icon btn-icon--danger" id="btn-end-session"
+                    aria-label="End session" title="End Session">&#x2715;</button>
+          </div>
+        </div>
+      </nav>
+
+      <!-- ====== Session Bar ====== -->
+      <div class="session-bar" id="session-bar" role="toolbar" aria-label="Session controls">
+        <button id="btn-new-session" class="btn btn--primary btn--sm">+ New Session</button>
+
+        <div class="session-controls" id="session-controls" style="display:none">
+          <span class="invite-label">Invite token:</span>
+          <code class="invite-token" id="invite-token"></code>
+          <button class="btn btn--ghost btn--sm" id="btn-copy-invite"
+                  aria-label="Copy invite token">Copy</button>
+          <span class="divider" aria-hidden="true">|</span>
+          <button class="btn btn--ghost btn--sm btn-icon--danger" id="btn-end-session-bar"
+                  aria-label="End session">End</button>
+        </div>
+
+        <div class="join-controls" id="join-controls" style="display:none">
+          <input type="text" id="join-session-id-bar" placeholder="Session ID"
+                 class="input-sm" aria-label="Session ID">
+          <input type="text" id="join-invite-token-bar" placeholder="Invite token"
+                 class="input-sm" aria-label="Invite token">
+          <button class="btn btn--ghost btn--sm" id="btn-join-bar"
+                  aria-label="Join session">Join</button>
+        </div>
+
+        <div class="peer-controls" id="peer-controls" style="display:none">
+          <select id="sim-picker" class="input-sm" aria-label="Simulation scenario">
+            <option value="security">Security Audit Handoff</option>
+            <option value="codereview">Code Review Handoff</option>
+            <option value="bughunt">Bug Hunt Collab</option>
+            <option value="workspace">Workspace Demo (with files)</option>
+          </select>
+          <button id="btn-simulate" class="btn btn--primary btn--sm"
+                  aria-label="Run simulation">&#x25b6; Simulate</button>
+          <button id="btn-clear" class="btn btn--ghost btn--sm"
+                  aria-label="Clear messages">Clear</button>
+        </div>
+      </div>
+
+      <!-- ====== DIRECTOR MODE ====== -->
+      <main class="director-view" id="director-view" role="main">
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar" role="complementary" aria-label="Workspace">
+          <div class="sidebar__header">
+            <span class="sidebar__title">Workspace</span>
+            <button class="btn-icon btn-icon--sm" id="btn-toggle-sidebar"
+                    aria-label="Toggle sidebar">&#x25e8;</button>
+          </div>
+
+          <!-- File Tree Section -->
+          <section class="sidebar__section">
+            <h3 class="sidebar__section-title">Files</h3>
+            <div class="file-tree" id="file-tree" role="tree" aria-label="Project files">
+              <div class="file-tree-empty">
+                No workspace data yet.<br>
+                Worker will share file structure when connected.
+              </div>
+            </div>
+          </section>
+
+          <!-- Session Info Section -->
+          <section class="sidebar__section" id="session-info">
+            <h3 class="sidebar__section-title">Session</h3>
+            <div class="sidebar__info-grid">
+              <div class="sidebar__info-row">
+                <span class="sidebar__info-label">ID</span>
+                <code class="sidebar__info-value sidebar__info-value--copyable"
+                      id="sidebar-session-id">---</code>
+              </div>
+              <div class="sidebar__info-row">
+                <span class="sidebar__info-label">TTL</span>
+                <span class="sidebar__info-value" id="sidebar-ttl">---</span>
+              </div>
+              <div class="sidebar__info-row">
+                <span class="sidebar__info-label">Messages</span>
+                <span class="sidebar__info-value" id="sidebar-msg-count">0 / 200</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Participants Section -->
+          <section class="sidebar__section">
+            <h3 class="sidebar__section-title">Participants</h3>
+            <ul class="participant-list" id="participant-list"
+                aria-label="Session participants">
+              <!-- Populated by JS -->
+            </ul>
+          </section>
+
+          <!-- Export Section -->
+          <section class="sidebar__section sidebar__section--footer">
+            <h3 class="sidebar__section-title">Export</h3>
+            <div class="sidebar__export-buttons">
+              <button class="btn btn--ghost btn--sm btn--full-width" id="btn-export-json"
+                      aria-label="Export as JSON">&#x2913; JSON</button>
+              <button class="btn btn--ghost btn--sm btn--full-width" id="btn-export-md"
+                      aria-label="Export as Markdown">&#x2913; Markdown</button>
+              <button class="btn btn--ghost btn--sm btn--full-width" id="btn-export-solid"
+                      aria-label="Export to Solid Pod">&#x2601; Solid Pod</button>
+            </div>
+          </section>
+        </aside>
+
+        <!-- Sidebar expand tab -->
+        <button class="sidebar-expand-tab" id="btn-expand-sidebar"
+                aria-label="Show sidebar">&#x25e8;</button>
+
+        <!-- Main content area -->
+        <div class="director-main">
+          <!-- Chat Panel -->
+          <div class="director-chat" id="director-chat">
+            <div class="director-header">
+              <div class="avatar avatar-worker" aria-hidden="true">W</div>
+              <div class="panel-info">
+                <h2 id="worker-name">Waiting for worker...</h2>
+                <span class="role-tag" id="worker-status">no one connected</span>
+              </div>
+              <div class="msg-count" id="director-count" aria-label="Message count">0 msgs</div>
+            </div>
+
+            <div class="messages" id="message-feed" role="log"
+                 aria-label="Message history" aria-live="polite"></div>
+            <!-- Legacy alias for backward compatibility -->
+            <div id="director-messages" style="display:none"></div>
+
+            <div class="typing-indicator" id="director-typing" aria-label="Typing">
+              <span></span><span></span><span></span>
+            </div>
+
+            <div class="director-input" id="input-area">
+              <select id="message-type-select" class="input-sm" aria-label="Message type">
+                <option value="question">Question</option>
+                <option value="context">Instruction</option>
+                <option value="answer">Feedback</option>
+              </select>
+              <!-- Legacy alias -->
+              <select id="msg-type" class="input-sm" style="display:none" aria-hidden="true">
+                <option value="question">question</option>
+                <option value="context">instruction</option>
+                <option value="answer">feedback</option>
+              </select>
+              <textarea id="message-input"
+                        placeholder="Type an instruction for the worker..."
+                        rows="1"
+                        aria-label="Message input"></textarea>
+              <!-- Legacy alias -->
+              <textarea id="director-textarea" style="display:none" aria-hidden="true"></textarea>
+              <button id="btn-send" class="btn btn--primary"
+                      aria-label="Send message">Send</button>
+            </div>
+          </div>
+
+          <!-- File Viewer (hidden until file selected) -->
+          <div class="file-viewer" id="file-viewer" style="display:none">
+            <div class="file-viewer-header">
+              <span class="file-viewer-path" id="file-viewer-path">No file selected</span>
+              <button class="btn-icon btn-icon--sm" id="btn-close-viewer"
+                      aria-label="Close file viewer">&#x2715;</button>
+            </div>
+            <pre class="file-viewer-content" id="file-viewer-content"
+                 role="document" aria-label="File contents"></pre>
+          </div>
+        </div>
+      </main>
+
+      <!-- ====== PEER MODE ====== -->
+      <main class="peer-view" id="peer-view" style="display:none" role="main">
+        <!-- Claude Alpha -->
+        <section class="panel panel-a">
+          <div class="panel-header">
+            <div class="avatar avatar-a" aria-hidden="true">A</div>
+            <div class="panel-info">
+              <h2>Claude Alpha</h2>
+              <span class="role-tag">researcher</span>
+            </div>
+            <div class="msg-count" id="count-a">0 msgs</div>
+          </div>
+          <div class="messages" id="messages-a" role="log"
+               aria-label="Claude Alpha messages"></div>
+          <div class="typing-indicator" id="typing-a" aria-label="Claude Alpha typing">
             <span></span><span></span><span></span>
           </div>
-          <div class="director-input">
-            <select id="msg-type" class="input-sm">
-              <option value="question">question</option>
-              <option value="context">instruction</option>
-              <option value="answer">feedback</option>
-            </select>
-            <textarea id="director-textarea" placeholder="Type an instruction for the worker..." rows="2"></textarea>
-            <button id="btn-send" class="btn btn-primary">Send</button>
-          </div>
+        </section>
+
+        <!-- Relay Spine -->
+        <div class="spine" aria-hidden="true">
+          <div class="spine-line"></div>
+          <div class="spine-label">relay</div>
+          <div class="spine-line"></div>
         </div>
 
-        <!-- File Viewer Panel (shown when a file is selected) -->
-        <div class="file-viewer" id="file-viewer" style="display:none">
-          <div class="file-viewer-header">
-            <span class="file-viewer-path" id="file-viewer-path">No file selected</span>
-            <button class="btn-icon" id="btn-close-viewer" title="Close">&#x2715;</button>
+        <!-- Claude Beta -->
+        <section class="panel panel-b">
+          <div class="panel-header">
+            <div class="avatar avatar-b" aria-hidden="true">B</div>
+            <div class="panel-info">
+              <h2>Claude Beta</h2>
+              <span class="role-tag">implementer</span>
+            </div>
+            <div class="msg-count" id="count-b">0 msgs</div>
           </div>
-          <pre class="file-viewer-content" id="file-viewer-content"></pre>
-        </div>
+          <div class="messages" id="messages-b" role="log"
+               aria-label="Claude Beta messages"></div>
+          <div class="typing-indicator" id="typing-b" aria-label="Claude Beta typing">
+            <span></span><span></span><span></span>
+          </div>
+        </section>
+      </main>
+
+      <!-- ====== Status Bar ====== -->
+      <footer class="bottombar" id="status-bar" role="status" aria-live="polite">
+        <span id="relay-info">relay server: connecting...</span>
+        <span id="nostr-info">
+          <span class="nostr-badge" id="nostr-badge" title="Nostr WebSocket status">
+            <span class="nostr-dot" id="nostr-dot"></span>
+            <span id="nostr-status">nostr: off</span>
+          </span>
+        </span>
+        <span id="msg-total">0 messages relayed</span>
+      </footer>
+
+    </div><!-- /app-main -->
+  </div><!-- /app -->
+
+  <!-- ====== Toast Container ====== -->
+  <div id="toast-container" aria-live="polite" aria-relevant="additions"></div>
+
+  <!-- ====== Solid Pod Export Modal ====== -->
+  <div class="modal-overlay" id="solid-export-modal" style="display:none"
+       role="dialog" aria-modal="true" aria-labelledby="solid-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="solid-modal-title">Export to Solid Pod</h3>
+        <button class="btn-icon btn-icon--sm" id="btn-solid-cancel-x"
+                aria-label="Close">&#x2715;</button>
       </div>
-    </main>
-
-    <!-- ============ PEER MODE ============ -->
-    <main class="peer-view" id="peer-view" style="display:none">
-      <!-- Claude A -->
-      <section class="panel panel-a">
-        <div class="panel-header">
-          <div class="avatar avatar-a">A</div>
-          <div class="panel-info">
-            <h2>Claude Alpha</h2>
-            <span class="role-tag">researcher</span>
-          </div>
-          <div class="msg-count" id="count-a">0 msgs</div>
-        </div>
-        <div class="messages" id="messages-a"></div>
-        <div class="typing-indicator" id="typing-a">
-          <span></span><span></span><span></span>
-        </div>
-      </section>
-
-      <!-- Center Relay Spine -->
-      <div class="spine">
-        <div class="spine-line"></div>
-        <div class="spine-label">relay</div>
-        <div class="spine-line"></div>
+      <div class="modal-body">
+        <label class="modal-label">Pod URL
+          <input type="text" id="solid-pod-url" class="modal-input"
+                 placeholder="https://pod.example/alice/">
+        </label>
+        <label class="modal-label">OIDC Issuer
+          <input type="text" id="solid-oidc-issuer" class="modal-input"
+                 placeholder="https://login.example.com/">
+        </label>
+        <label class="modal-label">Client ID
+          <input type="text" id="solid-client-id" class="modal-input"
+                 placeholder="relay-dashboard">
+        </label>
+        <label class="modal-label">Client Secret
+          <input type="password" id="solid-client-secret" class="modal-input"
+                 placeholder="secret">
+        </label>
+        <label class="modal-label">Container Path
+          <span class="modal-hint">(optional)</span>
+          <input type="text" id="solid-container-path" class="modal-input"
+                 placeholder="relay-sessions/">
+        </label>
+        <div class="modal-status" id="solid-export-status" aria-live="assertive"></div>
       </div>
-
-      <!-- Claude B -->
-      <section class="panel panel-b">
-        <div class="panel-header">
-          <div class="avatar avatar-b">B</div>
-          <div class="panel-info">
-            <h2>Claude Beta</h2>
-            <span class="role-tag">implementer</span>
-          </div>
-          <div class="msg-count" id="count-b">0 msgs</div>
-        </div>
-        <div class="messages" id="messages-b"></div>
-        <div class="typing-indicator" id="typing-b">
-          <span></span><span></span><span></span>
-        </div>
-      </section>
-    </main>
-
-    <!-- Bottom Status -->
-    <footer class="bottombar">
-      <span id="relay-info">relay server: connecting...</span>
-      <span id="nostr-info"></span>
-      <span id="msg-total">0 messages relayed</span>
-    </footer>
+      <div class="modal-footer">
+        <button class="btn btn--ghost btn--sm" id="btn-solid-cancel"
+                aria-label="Cancel export">Cancel</button>
+        <button class="btn btn--primary btn--sm" id="btn-solid-export"
+                aria-label="Export to Solid Pod">Export</button>
+      </div>
+    </div>
   </div>
 
   <script src="/app.js"></script>
