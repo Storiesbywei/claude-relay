@@ -35,7 +35,7 @@ export const AUTH_KIND = 22242; // Ephemeral: NIP-42 authentication
 export const DELETION_KIND = 5; // NIP-09: Event deletion
 
 // Supported NIPs advertised in NIP-11 relay info
-export const SUPPORTED_NIPS = [1, 9, 11, 42, 70] as const;
+export const SUPPORTED_NIPS = [1, 9, 11, 42, 44, 59, 70] as const;
 
 // NIP-11 relay information document
 export const RELAY_INFO = {

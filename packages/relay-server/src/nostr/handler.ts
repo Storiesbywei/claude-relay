@@ -6,7 +6,9 @@ import type {
 import { verifySignedEvent, validateAuthEvent, RELAY_INFO, LIMITS } from "@claude-relay/shared";
 import { eventStore } from "./event-store.js";
 import { SubscriptionManager, matchesSubscription, validateFilter } from "./subscriptions.js";
-import { isRelayEventKind, eventToMessage, setBroadcastFn } from "./bridge.js";
+import { isRelayEventKind, eventToMessage, setBroadcastFn, getServerKeypair, bridgeNostrToHttp } from "./bridge.js";
+import { isGiftWrap, isAddressedTo, unwrapGiftWrap, GIFT_WRAP_KIND } from "./nip44.js";
+import { getSessionByPubkey, getSessionMode } from "../store/sqlite.js";
 
 // ---- Configuration ----
 
@@ -216,8 +218,10 @@ function handleEvent(
     return;
   }
 
-  // Enforce pubkey must match authenticated identity (supersedes NIP-70 check)
-  if (state.authedPubkey !== event.pubkey) {
+  // Enforce pubkey must match authenticated identity (supersedes NIP-70 check).
+  // Exception: kind 1059 (gift wrap) uses a random one-time keypair per NIP-59,
+  // so the outer event's pubkey won't match the sender's authenticated identity.
+  if (event.kind !== GIFT_WRAP_KIND && state.authedPubkey !== event.pubkey) {
     send(ws, ["OK", event.id, false, "restricted: event pubkey must match authenticated identity"]);
     return;
   }
@@ -240,13 +244,17 @@ function handleEvent(
     return;
   }
 
-  // Timestamp bounds: reject events too far in the future or too old
+  // Timestamp bounds: reject events too far in the future or too old.
+  // NIP-59 gift wraps randomize created_at within +/- 2 days for metadata
+  // protection, so we use a wider window for kind 1059.
   const now = Math.floor(Date.now() / 1000);
-  if (event.created_at > now + 900) {
+  const maxFuture = event.kind === GIFT_WRAP_KIND ? 2 * 24 * 3600 : 900;
+  const maxPast = event.kind === GIFT_WRAP_KIND ? 2 * 24 * 3600 : 3600;
+  if (event.created_at > now + maxFuture) {
     send(ws, ["OK", event.id, false, "invalid: created_at too far in future"]);
     return;
   }
-  if (event.created_at < now - 3600) {
+  if (event.created_at < now - maxPast) {
     send(ws, ["OK", event.id, false, "invalid: created_at too old"]);
     return;
   }
@@ -280,6 +288,66 @@ function handleEvent(
   // Bridge: if this is a relay event kind, notify the HTTP bridge
   if (isRelayEventKind(event.kind) && onRelayEvent) {
     onRelayEvent(event);
+  }
+
+  // NIP-59: Handle gift-wrapped events (kind 1059)
+  if (isGiftWrap(event)) {
+    handleGiftWrap(event);
+  }
+}
+
+/**
+ * Handle a NIP-59 gift-wrapped event (kind 1059).
+ *
+ * - If the gift wrap is addressed to the server's pubkey, try to unwrap it.
+ * - Check whether the target session is in signal mode:
+ *   - Signal mode: do NOT decrypt — the gift wrap was already stored and
+ *     broadcast as-is. The relay stays blind to the content.
+ *   - Relay mode: decrypt, validate the inner event, and bridge to HTTP
+ *     so MCP tools and the dashboard can see the plaintext message.
+ */
+function handleGiftWrap(event: NostrEvent): void {
+  const serverKp = getServerKeypair();
+
+  // Only process gift wraps addressed to the server
+  if (!isAddressedTo(event, serverKp.publicKey)) {
+    return;
+  }
+
+  // Check if the sender's session is in signal mode.
+  // In signal mode, we must NOT decrypt — pass through as opaque ciphertext.
+  const binding = getSessionByPubkey(event.pubkey);
+  if (binding) {
+    const mode = getSessionMode(binding.session.id);
+    if (mode === "signal") {
+      console.log(
+        `[nostr] Gift wrap ${event.id.slice(0, 8)} — signal mode, passing through without decryption`
+      );
+      return;
+    }
+  }
+
+  // Relay mode: unwrap and bridge the inner event to HTTP
+  const inner = unwrapGiftWrap(event, serverKp.privateKey);
+  if (!inner) {
+    console.warn(
+      `[nostr] Gift wrap ${event.id.slice(0, 8)} — failed to unwrap (not addressed to us or corrupted)`
+    );
+    return;
+  }
+
+  console.log(
+    `[nostr] Gift wrap ${event.id.slice(0, 8)} unwrapped — inner kind ${inner.kind} from ${inner.pubkey?.slice(0, 8) ?? "unknown"}`
+  );
+
+  // Bridge the inner (plaintext) event to the HTTP session store
+  if (isRelayEventKind(inner.kind)) {
+    const bridged = bridgeNostrToHttp(inner);
+    if (bridged) {
+      console.log(
+        `[nostr] Gift wrap inner event bridged to HTTP session`
+      );
+    }
   }
 }
 

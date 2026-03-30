@@ -20,9 +20,10 @@ import {
   scanAndGateMessage,
 } from "@claude-relay/shared";
 import { eventStore } from "./event-store.js";
-import { getSessionByPubkey, addMessage, getSession, getSessionMode, hasMessageWithEventId } from "../store/sqlite.js";
+import { getSessionByPubkey, addMessage, getSession, getSessionMode, hasMessageWithEventId, getSessionNostrPubkeys } from "../store/sqlite.js";
 import { publishToExternal } from "./relay-pool.js";
 import { checkBridgeRateLimit } from "../middleware/rate-limit.js";
+import { createGiftWrap, GIFT_WRAP_KIND } from "./nip44.js";
 
 // Lazy import to avoid circular dependency — set by handler.ts init
 let _broadcastEvent: ((event: NostrEvent) => void) | null = null;
@@ -144,6 +145,72 @@ export function bridgeMessageToNostr(msg: StoredMessage, sessionId?: string): No
   // Forward to external relays
   publishToExternal(event);
   return event;
+}
+
+/**
+ * Publish a StoredMessage as a NIP-59 gift-wrapped event to specific Nostr recipients.
+ *
+ * For each registered Nostr pubkey in the session, creates a separate gift wrap
+ * (each encrypted to that specific recipient). This is the encrypted counterpart
+ * to bridgeMessageToNostr.
+ *
+ * @param msg The stored message to bridge
+ * @param sessionId Session ID — required to look up recipient pubkeys
+ * @returns Array of gift-wrapped events (one per recipient), or empty if no recipients
+ */
+export function bridgeMessageToNostrEncrypted(
+  msg: StoredMessage,
+  sessionId: string
+): NostrEvent[] {
+  // Signal mode check — encrypted messages stay in HTTP channel
+  const mode = getSessionMode(sessionId);
+  if (mode === "signal") {
+    return [];
+  }
+
+  // Get all registered Nostr pubkeys for this session
+  const recipientPubkeys = getSessionNostrPubkeys(sessionId);
+  if (recipientPubkeys.length === 0) {
+    return [];
+  }
+
+  // Build the inner event (same structure as messageToEvent but we gift-wrap it)
+  const plainEvent = messageToEvent(msg, sessionId);
+  const innerTemplate = {
+    kind: plainEvent.kind,
+    content: plainEvent.content,
+    tags: plainEvent.tags,
+    created_at: plainEvent.created_at,
+  };
+
+  const wrappedEvents: NostrEvent[] = [];
+
+  for (const recipientPubkey of recipientPubkeys) {
+    // Skip wrapping to ourselves (server pubkey)
+    if (recipientPubkey === serverKeypair.publicKey) continue;
+
+    try {
+      const wrapped = createGiftWrap(
+        innerTemplate,
+        serverKeypair.privateKey,
+        recipientPubkey
+      );
+
+      // Store and broadcast the gift wrap
+      eventStore.store(wrapped);
+      if (_broadcastEvent) {
+        _broadcastEvent(wrapped);
+      }
+      publishToExternal(wrapped);
+      wrappedEvents.push(wrapped);
+    } catch (err) {
+      console.warn(
+        `[nostr-bridge] Failed to gift-wrap for ${recipientPubkey.slice(0, 8)}: ${err}`
+      );
+    }
+  }
+
+  return wrappedEvents;
 }
 
 /** Check if a Nostr event kind is a Claude Relay message */

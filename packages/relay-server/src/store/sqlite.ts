@@ -776,6 +776,12 @@ export function hasMessageWithEventId(sessionId: string, eventId: string): boole
   return !!stmts.hasEventId.get({ $session_id: sessionId, $event_id: eventId });
 }
 
+/** Get all Nostr pubkeys registered to a session */
+export function getSessionNostrPubkeys(sessionId: string): string[] {
+  const rows = stmts.getPubkeysForSession.all({ $session_id: sessionId }) as { pubkey: string; token: string }[];
+  return rows.map((r) => r.pubkey);
+}
+
 // SSE subscribers: sessionId -> Set of callbacks
 export function subscribe(
   sessionId: string,
@@ -1121,4 +1127,49 @@ export function getMessageBySequence(sessionId: string, sequence: number): Store
   const row = stmts.getMessageBySequence.get({ $session_id: sessionId, $sequence: sequence }) as MessageRow | null;
   if (!row) return undefined;
   return rowToMessage(row);
+}
+
+// ─── Noise Transport: Server Keypair Persistence ────────────────────────────
+
+// Table for the server's static X25519 keypair (persists across restarts)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS noise_server_keypair (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    private_key TEXT NOT NULL,
+    public_key  TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+  );
+`);
+
+const noiseStmts = {
+  getKeypair: db.prepare(`SELECT private_key, public_key FROM noise_server_keypair WHERE id = 1`),
+  upsertKeypair: db.prepare(`
+    INSERT OR REPLACE INTO noise_server_keypair (id, private_key, public_key, created_at)
+    VALUES (1, $private_key, $public_key, $created_at)
+  `),
+};
+
+/**
+ * Load the persisted server X25519 keypair from SQLite.
+ * Returns null if no keypair has been stored yet.
+ */
+export function getNoiseServerKeypair(): { privateKey: string; publicKey: string } | null {
+  const row = noiseStmts.getKeypair.get() as { private_key: string; public_key: string } | null;
+  if (!row) return null;
+  return { privateKey: row.private_key, publicKey: row.public_key };
+}
+
+/**
+ * Persist the server X25519 keypair to SQLite.
+ * Uses INSERT OR REPLACE to handle both initial creation and rotation.
+ *
+ * @param privateKey - Base64-encoded private key
+ * @param publicKey  - Base64-encoded public key
+ */
+export function setNoiseServerKeypair(privateKey: string, publicKey: string): void {
+  noiseStmts.upsertKeypair.run({
+    $private_key: privateKey,
+    $public_key: publicKey,
+    $created_at: new Date().toISOString(),
+  });
 }

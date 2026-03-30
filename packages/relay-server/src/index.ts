@@ -21,6 +21,8 @@ import { nostrRelayRoutes } from "./routes/nostr-relays.js";
 import { solidRoutes } from "./routes/solid.js";
 import { clearSessionCache } from "./solid/auth.js";
 import { notificationPool } from "./solid/notification-pool.js";
+import { noiseRoutes } from "./routes/noise.js";
+import { noiseMiddleware, noiseBodyMiddleware } from "./middleware/noise.js";
 
 const app = new Hono();
 
@@ -63,10 +65,17 @@ app.get("/", async (c, next) => {
 // Public routes
 app.route("/health", healthRoutes);
 
+// Noise transport handshake (public — no auth for key exchange)
+app.route("/noise", noiseRoutes);
+
 // Session management (auth handled per-route)
 app.route("/sessions", sessionRoutes);
 
-// Relay routes (all require auth + rate limiting)
+// Relay routes (noise transport → auth → rate limiting)
+// Noise middleware runs first: decrypts body if X-Noise-Token is present
+app.use("/relay/:session_id/stream", noiseMiddleware, noiseBodyMiddleware);
+app.use("/relay/:session_id/*", noiseMiddleware, noiseBodyMiddleware);
+app.use("/relay/:session_id", noiseMiddleware, noiseBodyMiddleware);
 app.use("/relay/:session_id/stream", authMiddleware);
 app.use("/relay/:session_id/*", authMiddleware);
 app.use("/relay/:session_id/*", rateLimitMiddleware);
