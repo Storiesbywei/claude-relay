@@ -8,11 +8,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 import { healthRoutes } from "./routes/health.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { relayRoutes } from "./routes/relay.js";
+import { federationRoutes } from "./routes/federation.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { sweepExpiredSessions } from "./store/memory.js";
 import { RELAY_PORT, LIMITS, RELAY_INFO } from "@claude-relay/shared";
 import { handleOpen, handleClose, handleMessage, getNostrStats, setCanonicalRelayUrl } from "./nostr/handler.js";
+import { isFederationEnabled, getNostrAllowlist, getSolidAllowlist } from "./federation/allowlist.js";
 
 const app = new Hono();
 
@@ -66,6 +68,9 @@ app.use("/relay/:session_id", authMiddleware);
 app.use("/relay/:session_id", rateLimitMiddleware);
 app.route("/relay", relayRoutes);
 
+// Federation management routes (public read, auth for writes)
+app.route("/federation", federationRoutes);
+
 // Dashboard (static files)
 const publicDir = resolve(__dirname, "../public");
 app.use("/*", async (c, next) => {
@@ -108,6 +113,13 @@ setCanonicalRelayUrl(canonicalWsUrl);
 
 console.log(`[relay] Claude Relay server starting on http://0.0.0.0:${port}`);
 console.log(`[relay] Nostr WebSocket relay available at ${canonicalWsUrl}`);
+console.log(`[relay] Federation: ${isFederationEnabled() ? "ENABLED" : "DISABLED (deny-by-default)"}`);
+if (isFederationEnabled()) {
+  const nostrList = getNostrAllowlist();
+  const solidList = getSolidAllowlist();
+  console.log(`[relay]   Nostr allowlist: ${nostrList.length > 0 ? nostrList.join(", ") : "(open — all relays allowed)"}`);
+  console.log(`[relay]   Solid allowlist: ${solidList.length > 0 ? solidList.join(", ") : "(open — all pods allowed)"}`);
+}
 
 export default {
   port,
