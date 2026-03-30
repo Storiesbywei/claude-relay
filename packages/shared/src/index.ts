@@ -6,3 +6,4 @@ export * from "./nostr-constants.js";
 export * from "./nostr-types.js";
 export * from "./nostr-crypto.js";
 export * from "./nostr-utils.js";
+export * from "./solid-types.js";

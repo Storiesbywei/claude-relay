@@ -16,6 +16,8 @@ import { handleOpen, handleClose, handleMessage, handlePong, getNostrStats, setC
 import { bridgeNostrToHttp, getServerKeypair } from "./nostr/bridge.js";
 import { disconnectAll as disconnectRelayPool, setPoolKeypair, shutdownPool } from "./nostr/relay-pool.js";
 import { nostrRelayRoutes } from "./routes/nostr-relays.js";
+import { solidRoutes } from "./routes/solid.js";
+import { clearSessionCache } from "./solid/auth.js";
 
 const app = new Hono();
 
@@ -72,6 +74,10 @@ app.route("/relay", relayRoutes);
 // Nostr relay pool management (auth handled in route handlers)
 app.route("/nostr", nostrRelayRoutes);
 
+// Solid Pod export routes (require auth)
+app.use("/solid/:session_id/*", authMiddleware);
+app.route("/solid", solidRoutes);
+
 // Dashboard (static files)
 const publicDir = resolve(__dirname, "../public");
 app.use("/*", async (c, next) => {
@@ -102,6 +108,7 @@ const shutdown = () => {
   clearInterval(sweepInterval);
   disconnectRelayPool();
   shutdownPool();
+  clearSessionCache();
   console.log("\n[relay] Shutting down...");
   process.exit(0);
 };
