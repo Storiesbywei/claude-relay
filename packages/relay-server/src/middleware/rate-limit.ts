@@ -29,7 +29,6 @@ const WINDOW_MS = 60_000;
 // Composite key  `${token}:${origin}` → timestamps[]
 const windows = new Map<string, number[]>();
 
-<<<<<<< HEAD
 // Periodic cleanup: remove entries with no recent timestamps to prevent memory leak
 setInterval(() => {
   const now = Date.now();
@@ -41,15 +40,6 @@ setInterval(() => {
   }
 }, 300_000); // Every 5 minutes
 
-export function getRateLimitStats(): { entries: number } {
-  return { entries: windows.size };
-}
-
-export async function rateLimitMiddleware(c: Context, next: Next) {
-  const token = c.get("token") as string | undefined;
-  // Never use x-forwarded-for — trivially spoofable (TC-02)
-  const key = token || "anonymous";
-=======
 /** Resolve the per-origin ceiling for the given origin string. */
 function originLimit(origin: string): number {
   return ORIGIN_LIMITS[origin] ?? ORIGIN_LIMITS.default;
@@ -83,10 +73,10 @@ function globalCount(token: string, now: number): number {
 
 export async function rateLimitMiddleware(c: Context, next: Next) {
   const token = c.get("token") as string | undefined;
-  const baseKey = token || c.req.header("x-forwarded-for") || "anonymous";
+  // Never use x-forwarded-for — trivially spoofable (TC-02)
+  const baseKey = token || "anonymous";
   const origin = "http";
   const compositeKey = `${baseKey}:${origin}`;
->>>>>>> worktree-agent-a51c397e
   const now = Date.now();
 
   // 1. Per-origin check

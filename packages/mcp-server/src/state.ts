@@ -8,11 +8,8 @@ import type { ActiveSession } from "@claude-relay/shared";
 import { readFile, writeFile, mkdir, chmod, stat, open } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
-<<<<<<< HEAD
 import { NostrClient } from "./client/nostr-client.js";
-=======
 import { randomBytes } from "crypto";
->>>>>>> worktree-agent-a56a7edc
 
 const STATE_DIR = join(homedir(), ".claude-relay");
 const STATE_FILE = join(STATE_DIR, "active-sessions.json");
