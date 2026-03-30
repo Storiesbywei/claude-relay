@@ -4,16 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
-  <title>Claude Relay</title>
+  <title>Protocol Chronicle — Claude Relay</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
 </head>
 <body>
-  <!-- SETUP SCREEN -->
-  <div id="setup" class="setup">
+
+  <!-- Mesh field canvas background -->
+  <canvas id="mesh-canvas"></canvas>
+
+  <!-- ============ SETUP SCREEN ============ -->
+  <div id="setup" class="setup-screen">
     <div class="setup-card">
       <div class="setup-brand">
-        <h1>Claude Relay</h1>
-        <p>Real-time AI collaboration</p>
+        <div class="brand-diamond"></div>
+        <h1>Protocol Chronicle</h1>
+        <p>Inter-Claude Knowledge Relay</p>
       </div>
 
       <div class="setup-section">
@@ -23,91 +29,208 @@
           <option value="30">30 min</option>
           <option value="60" selected>1 hour</option>
           <option value="480">8 hours</option>
+          <option value="1440">24 hours</option>
         </select>
-        <button id="btn-create" class="btn-primary">Create</button>
+        <button id="btn-create" class="btn-chronicle">Inscribe New Session</button>
+        <div class="setup-error" id="create-error"></div>
       </div>
 
-      <div class="setup-divider"><span>or join existing</span></div>
+      <div class="setup-divider"><span>or join existing folio</span></div>
 
       <div class="setup-section">
         <h2>Join Session</h2>
         <input type="text" id="join-id" placeholder="Session ID">
         <input type="text" id="join-invite" placeholder="Invite token">
         <input type="text" id="join-name" placeholder="Your name" value="worker">
-        <button id="btn-join" class="btn-ghost">Join</button>
+        <button id="btn-join" class="btn-ghost-chronicle">Enter Session</button>
+        <div class="setup-error" id="join-error"></div>
       </div>
     </div>
   </div>
 
-  <!-- MAIN APP -->
-  <div id="main" class="main" style="display:none">
-    <!-- Navbar -->
-    <nav class="navbar">
-      <div class="nav-left">
-        <span class="nav-logo">&#9671;</span>
-        <span class="nav-title" id="session-name">Claude Relay</span>
-        <span class="nav-dot" id="status-dot"></span>
+  <!-- ============ MAIN APP ============ -->
+  <div id="main" class="app-shell" style="display:none">
+
+    <!-- Masthead -->
+    <header class="masthead">
+      <div class="mast-left">
+        <div class="brand-mark"></div>
+        <span class="mast-title" id="session-name">Protocol Chronicle</span>
       </div>
-      <div class="nav-right">
-        <div class="nav-participants" id="participants"></div>
-        <button class="btn-icon" id="btn-export" title="Export JSON">&#8595;</button>
-        <button class="btn-icon btn-danger" id="btn-end" title="End session">&#10005;</button>
+
+      <div class="mast-center" id="bridge-status">
+        <span class="bridge-label">HTTP</span>
+        <span class="bridge-dot active" id="dot-http"></span>
+        <span class="bridge-arrow">&#10231;</span>
+        <span class="bridge-label">Core</span>
+        <span class="bridge-arrow">&#10231;</span>
+        <span class="bridge-label">Nostr</span>
+        <span class="bridge-dot inactive" id="dot-nostr"></span>
+        <span class="bridge-label">WS</span>
+        <span class="bridge-arrow">&#8597;</span>
+        <span class="bridge-label">Solid</span>
+        <span class="bridge-dot inactive" id="dot-solid"></span>
       </div>
-    </nav>
+
+      <div class="mast-right">
+        <div class="connection-pill" id="connection-pill">
+          <span class="dot"></span>
+          <span id="connection-label">Connected</span>
+        </div>
+        <span class="folio-counter" id="folio-counter">Folio i</span>
+        <div class="mast-actions">
+          <button class="mast-btn" id="btn-export" title="Export session">
+            <i class="ph ph-download-simple"></i>
+          </button>
+          <button class="mast-btn danger" id="btn-end" title="End session">
+            <i class="ph ph-sign-out"></i>
+          </button>
+        </div>
+      </div>
+    </header>
 
     <!-- Invite bar (shown after create) -->
     <div class="invite-bar" id="invite-bar" style="display:none">
-      <span>Invite token:</span>
+      <i class="ph ph-key" style="color:var(--amber);font-size:14px"></i>
+      <span>Invite token</span>
       <code id="invite-token"></code>
-      <button class="btn-small" id="btn-copy">Copy</button>
+      <button class="copy-btn" id="btn-copy">Copy</button>
+      <span style="margin-left:auto;color:var(--text-dim)">Share with worker to join</span>
     </div>
 
-    <!-- Content area -->
-    <div class="content">
-      <!-- Sidebar -->
-      <aside class="sidebar" id="sidebar">
-        <div class="sidebar-section">
+    <!-- Content -->
+    <div class="app-content">
+
+      <!-- Left Rail -->
+      <aside class="left-rail" id="left-rail">
+
+        <!-- Protocol Status -->
+        <div class="rail-section">
+          <h3>Protocol Status</h3>
+
+          <div class="protocol-card">
+            <div class="protocol-icon http"><i class="ph ph-cloud"></i></div>
+            <div class="protocol-info">
+              <div class="protocol-name">HTTP REST</div>
+              <div class="protocol-stat" id="http-stat">Active</div>
+            </div>
+            <div class="protocol-dot live" id="http-dot"></div>
+          </div>
+
+          <div class="protocol-card">
+            <div class="protocol-icon nostr"><i class="ph ph-lightning"></i></div>
+            <div class="protocol-info">
+              <div class="protocol-name">Nostr WS</div>
+              <div class="protocol-stat" id="nostr-stat">--</div>
+            </div>
+            <div class="protocol-dot off" id="nostr-dot"></div>
+          </div>
+
+          <div class="protocol-card">
+            <div class="protocol-icon solid"><i class="ph ph-vault"></i></div>
+            <div class="protocol-info">
+              <div class="protocol-name">Solid Pods</div>
+              <div class="protocol-stat" id="solid-stat">--</div>
+            </div>
+            <div class="protocol-dot off" id="solid-dot"></div>
+          </div>
+        </div>
+
+        <!-- Defense Scan -->
+        <div class="rail-section">
+          <h3>Defense Scan</h3>
+          <ul class="defense-list" id="defense-list">
+            <li><span class="defense-check pass">&#10003;</span> Bearer auth gating</li>
+            <li><span class="defense-check pass">&#10003;</span> Content scanner</li>
+            <li><span class="defense-check pass">&#10003;</span> Rate limiter</li>
+            <li><span class="defense-check pass">&#10003;</span> CORS restriction</li>
+            <li><span class="defense-check pass">&#10003;</span> XSS escape</li>
+            <li><span class="defense-check pass">&#10003;</span> TTL sweep</li>
+          </ul>
+        </div>
+
+        <!-- Session Info -->
+        <div class="rail-section">
           <h3>Session</h3>
-          <div class="info-row"><span>ID</span><code id="info-id">&mdash;</code></div>
-          <div class="info-row"><span>Messages</span><span id="info-count">0</span></div>
-          <div class="info-row"><span>Expires</span><span id="info-expires">&mdash;</span></div>
+          <div class="session-meta">
+            <div class="session-meta-row">
+              <span>ID</span>
+              <code id="info-id">&mdash;</code>
+            </div>
+            <div class="session-meta-row">
+              <span>Messages</span>
+              <span id="info-count">0</span>
+            </div>
+            <div class="session-meta-row">
+              <span>Expires</span>
+              <span id="info-expires">&mdash;</span>
+            </div>
+            <div class="session-meta-row">
+              <span>Uptime</span>
+              <span id="info-uptime">&mdash;</span>
+            </div>
+          </div>
         </div>
-        <div class="sidebar-section">
+
+        <!-- Participants -->
+        <div class="rail-section">
           <h3>Participants</h3>
-          <ul id="participant-list"></ul>
+          <ul class="participant-list" id="participant-list"></ul>
         </div>
-        <div class="sidebar-section">
+
+        <!-- Identity -->
+        <div class="rail-section">
+          <h3>Identity</h3>
+          <div class="identity-row">
+            <span class="identity-label">npub</span>
+            <span class="identity-value" id="id-npub">&mdash;</span>
+          </div>
+          <div class="identity-row">
+            <span class="identity-label">pod</span>
+            <span class="identity-value" id="id-pod">&mdash;</span>
+          </div>
+        </div>
+
+        <!-- Export -->
+        <div class="rail-section">
           <h3>Export</h3>
-          <button class="btn-ghost btn-full" id="btn-export-json">&#8595; JSON</button>
-          <button class="btn-ghost btn-full" id="btn-export-md">&#8595; Markdown</button>
+          <button class="btn-ghost-chronicle" id="btn-export-json" style="margin-bottom:6px;font-size:10px;padding:8px">
+            <i class="ph ph-file-text" style="margin-right:6px"></i> JSON
+          </button>
+          <button class="btn-ghost-chronicle" id="btn-export-md" style="font-size:10px;padding:8px">
+            <i class="ph ph-article" style="margin-right:6px"></i> Markdown
+          </button>
         </div>
       </aside>
 
-      <!-- Message feed -->
-      <div class="feed">
-        <div class="messages" id="messages"></div>
+      <!-- Chronicle Feed -->
+      <div class="chronicle-area">
+        <div class="chronicle-feed" id="chronicle">
+          <div class="chronicle-empty" id="empty-state">
+            <div class="empty-diamond"></div>
+            <div class="empty-title">The chronicle awaits</div>
+            <div class="empty-sub">Send the first message to begin</div>
+          </div>
+        </div>
 
-        <div class="input-bar">
-          <select id="msg-type">
-            <option value="question">Question</option>
-            <option value="answer">Answer</option>
-            <option value="context">Context</option>
-            <option value="architecture">Architecture</option>
-            <option value="insight">Insight</option>
-            <option value="task">Task</option>
-          </select>
-          <textarea id="msg-input" placeholder="Type a message... (Cmd+Enter to send)" rows="1"></textarea>
-          <button id="btn-send" class="btn-primary">Send</button>
+        <!-- Composer -->
+        <div class="composer">
+          <div class="composer-tabs" id="composer-tabs">
+            <button class="composer-tab" data-type="Arch">Arch</button>
+            <button class="composer-tab active" data-type="Question">Question</button>
+            <button class="composer-tab" data-type="Answer">Answer</button>
+            <button class="composer-tab" data-type="Insight">Insight</button>
+            <button class="composer-tab" data-type="Event">Event</button>
+          </div>
+          <div class="composer-row">
+            <textarea class="composer-input" id="msg-input" placeholder="Inscribe a message... (Cmd+Enter to send)" rows="1"></textarea>
+            <button class="composer-send" id="btn-send">Send</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Status bar -->
-    <footer class="statusbar">
-      <span id="status-text">Disconnected</span>
-      <span id="msg-total">0 messages</span>
-    </footer>
-  </div>
+    </div><!-- /app-content -->
+  </div><!-- /main -->
 
   <script src="/app.js"></script>
 </body>
