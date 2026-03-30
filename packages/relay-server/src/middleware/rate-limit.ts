@@ -4,6 +4,21 @@ import { LIMITS } from "@claude-relay/shared";
 // Simple sliding window rate limiter: token → timestamps[]
 const windows = new Map<string, number[]>();
 
+// Periodic cleanup: remove entries with no recent timestamps to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamps] of windows.entries()) {
+    const active = timestamps.filter((t) => now - t < 60_000);
+    if (active.length === 0) {
+      windows.delete(key);
+    }
+  }
+}, 300_000); // Every 5 minutes
+
+export function getRateLimitStats(): { entries: number } {
+  return { entries: windows.size };
+}
+
 export async function rateLimitMiddleware(c: Context, next: Next) {
   const token = c.get("token") as string | undefined;
   // Never use x-forwarded-for — trivially spoofable (TC-02)
