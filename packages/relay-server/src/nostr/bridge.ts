@@ -46,10 +46,15 @@ export function messageToEvent(msg: StoredMessage, sessionId?: string): NostrEve
   const kind = NOSTR_EVENT_KINDS[msg.type as keyof typeof NOSTR_EVENT_KINDS];
   if (!kind) {
     // Fallback to "context" kind for unknown types
-    return messageToEvent({ ...msg, type: "context" });
+    return messageToEvent({ ...msg, type: "context" }, sessionId);
   }
 
   const tags: string[][] = [];
+
+  // Session scoping — allows Nostr subscribers to filter by session
+  if (sessionId) {
+    tags.push(["session", sessionId]);
+  }
 
   // Title tag
   if (msg.title) {
@@ -117,6 +122,11 @@ export function messageToEvent(msg: StoredMessage, sessionId?: string): NostrEve
 /**
  * Publish a StoredMessage (from HTTP API) to the Nostr event store
  * and broadcast to WebSocket subscribers.
+ *
+ * @param msg The stored message to bridge
+ * @param sessionId Optional session ID — added as a "session" tag so Nostr
+ *   subscribers can filter events to their own session. Without this,
+ *   all WS subscribers would receive messages from ALL sessions (cross-session leak).
  */
 export function bridgeMessageToNostr(msg: StoredMessage, sessionId?: string): NostrEvent {
   const event = messageToEvent(msg, sessionId);
