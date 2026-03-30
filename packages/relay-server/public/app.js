@@ -297,20 +297,34 @@ function startSession(sess) {
     document.documentElement.removeAttribute('data-mode');
   }
 
-  // Inject URL params for sharing + encryption key in fragment
-  // The URL fragment (#key=...) is NEVER sent to the server by browsers.
+  // Inject URL params for sharing — secrets go in fragment (never sent to server).
+  // Only non-secret identifiers (sid, name) stay in query params.
+  // Token and encryption key are in the URL fragment to avoid leaking to
+  // server logs, browser history referrer headers, or proxy logs.
   const url = new URL(location.href);
   url.searchParams.set('sid', sess.id);
-  url.searchParams.set('token', sess.token);
   url.searchParams.set('name', sess.name);
+  // Remove token from query params if present (migration from old URLs)
+  url.searchParams.delete('token');
   if (sess.mode === 'signal') {
     url.searchParams.set('mode', 'signal');
   }
+  // Build fragment: token is always present, key is added for encrypted sessions
+  var fragmentParts = ['token=' + encodeURIComponent(sess.token)];
   if (sess._cryptoSecret) {
-    url.hash = 'key=' + sess._cryptoSecret;
-  } else if (relayCrypto.enabled) {
-    // Preserve existing hash if crypto already initialized
+    fragmentParts.push('key=' + sess._cryptoSecret);
+  } else if (relayCrypto.enabled && location.hash) {
+    // Preserve existing key= from fragment if crypto already initialized
+    var existingHash = location.hash.slice(1).split('&');
+    for (var ei = 0; ei < existingHash.length; ei++) {
+      var ep = existingHash[ei].split('=');
+      if (ep[0] === 'key' && ep[1]) {
+        fragmentParts.push('key=' + ep[1]);
+        break;
+      }
+    }
   }
+  url.hash = fragmentParts.join('&');
   history.replaceState(null, '', url.toString());
 
   // Update encryption UI indicator
@@ -1019,21 +1033,29 @@ function init() {
   // Start mesh canvas
   initMeshCanvas();
 
-  // URL param injection: ?sid=...&token=...&name=... + #key=... for encryption
+  // URL param injection: ?sid=...&name=... + #token=...&key=... (secrets in fragment)
+  // The URL fragment is NEVER sent to the server by browsers, preventing token
+  // leakage to server logs, browser history referrer headers, and proxy logs.
   var params = new URLSearchParams(location.search);
-  if (params.get('sid') && params.get('token')) {
-    // Extract encryption key from URL fragment (never sent to server)
-    var cryptoSecret = null;
-    if (location.hash) {
-      var hashParams = location.hash.slice(1).split('&');
-      for (var hi = 0; hi < hashParams.length; hi++) {
-        var pair = hashParams[hi].split('=');
-        if (pair[0] === 'key' && pair[1]) {
-          cryptoSecret = pair[1];
-        }
+  // Parse fragment parameters (token + encryption key)
+  var fragmentToken = null;
+  var cryptoSecret = null;
+  if (location.hash) {
+    var hashParams = location.hash.slice(1).split('&');
+    for (var hi = 0; hi < hashParams.length; hi++) {
+      var pair = hashParams[hi].split('=');
+      if (pair[0] === 'token' && pair[1]) {
+        fragmentToken = decodeURIComponent(pair[1]);
+      }
+      if (pair[0] === 'key' && pair[1]) {
+        cryptoSecret = pair[1];
       }
     }
+  }
+  // Support legacy URLs that had token in query params (migration)
+  var urlToken = fragmentToken || params.get('token');
 
+  if (params.get('sid') && urlToken) {
     // Initialize encryption if key is present
     var sessionId = params.get('sid');
     var urlMode = params.get('mode') || 'relay';
@@ -1041,7 +1063,7 @@ function init() {
       relayCrypto.initForJoiner(cryptoSecret, sessionId).then(function() {
         startSession({
           id: sessionId,
-          token: params.get('token'),
+          token: urlToken,
           invite: null,
           name: params.get('name') || 'Session',
           role: 'participant',
@@ -1059,7 +1081,7 @@ function init() {
         // Start session without encryption as fallback
         startSession({
           id: sessionId,
-          token: params.get('token'),
+          token: urlToken,
           invite: null,
           name: params.get('name') || 'Session',
           role: 'participant',
@@ -1075,7 +1097,7 @@ function init() {
       } else {
         startSession({
           id: sessionId,
-          token: params.get('token'),
+          token: urlToken,
           invite: null,
           name: params.get('name') || 'Session',
           role: 'participant',

@@ -35,8 +35,23 @@ relayRoutes.post("/:session_id", async (c) => {
   }
 
   // 2. Reject messages from MCP origin (signal mode is human-to-human only)
-  if (isSignalMode && body.origin === 'mcp') {
+  if (isSignalMode && parsed.data.origin === 'mcp') {
     return c.json({ error: "MCP tools are not allowed in signal mode" }, 403);
+  }
+
+  // Verify encrypted payloads actually contain valid encrypted structure
+  if (parsed.data.encrypted) {
+    try {
+      const payload = JSON.parse(parsed.data.content);
+      if (typeof payload.ciphertext !== 'string' || typeof payload.iv !== 'string' || !payload.encrypted) {
+        return c.json({ error: 'Invalid encrypted payload structure' }, 400);
+      }
+      if (payload.ciphertext.length < 20 || payload.iv.length < 12) {
+        return c.json({ error: 'Encrypted payload too short' }, 400);
+      }
+    } catch {
+      return c.json({ error: 'encrypted flag set but content is not valid encrypted JSON' }, 400);
+    }
   }
 
   // Skip server-side content scanning for E2E encrypted payloads or signal mode.
@@ -67,7 +82,7 @@ relayRoutes.post("/:session_id", async (c) => {
     context: parsed.data.context,
     sender_name: senderName,
     sent_at: new Date().toISOString(),
-    origin: "http",
+    origin: parsed.data.origin || "http",
     ...(parsed.data.encrypted ? { encrypted: true } : {}),
   };
 

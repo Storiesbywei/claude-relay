@@ -40,6 +40,10 @@ export const RelayMessagePayloadSchema = z.object({
     .boolean()
     .optional()
     .describe("True if content is E2E encrypted (Scan-then-Seal). Server skips content scanning for encrypted payloads."),
+  origin: z
+    .enum(["http", "mcp", "nostr", "solid"])
+    .optional()
+    .describe("Protocol origin: how this message entered the relay"),
 });
 
 // Full message as stored/returned by the relay server

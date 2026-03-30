@@ -28,7 +28,15 @@ export async function loadState(): Promise<void> {
 export async function saveState(): Promise<void> {
   try {
     await mkdir(STATE_DIR, { recursive: true, mode: 0o700 });
-    await writeFile(STATE_FILE, JSON.stringify(activeSessions, null, 2), { mode: 0o600 });
+    // SECURITY: Strip encryption_secret before writing to disk.
+    // The encryption secret must only live in the in-memory activeSessions array.
+    // When the MCP server restarts, the user must re-provide the encryption key.
+    // This matches the dashboard's guarantee (key in memory / URL fragment only).
+    const sessionsForDisk = activeSessions.map((s) => {
+      const { encryption_secret, ...rest } = s;
+      return rest;
+    });
+    await writeFile(STATE_FILE, JSON.stringify(sessionsForDisk, null, 2), { mode: 0o600 });
     // Ensure restrictive permissions (contains nsec private keys)
     await chmod(STATE_FILE, 0o600);
     await chmod(STATE_DIR, 0o700);

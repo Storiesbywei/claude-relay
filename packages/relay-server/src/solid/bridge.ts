@@ -15,6 +15,7 @@ import type { StoredMessage, SolidExportConfig } from "@claude-relay/shared";
 import { RELAY_VOCAB, MESSAGE_TYPE_TO_RDF_CLASS, scanAndGateMessage } from "@claude-relay/shared";
 import {
   addMessage,
+  getSessionMode,
   hasMessageWithSolidUrl,
 } from "../store/sqlite.js";
 import { getAuthenticatedSession } from "./auth.js";
@@ -65,6 +66,12 @@ export async function bridgeMessageToSolid(
 ): Promise<void> {
   const config = federationConfigs.get(sessionId);
   if (!config) return; // No Solid federation for this session
+
+  // SECURITY: Signal mode sessions must not leak ciphertext to Solid Pods.
+  // All message content in signal mode is E2E encrypted and must stay within
+  // the HTTP channel where only participants with the key can decrypt.
+  const mode = getSessionMode(sessionId);
+  if (mode === 'signal') return;
 
   // Don't re-bridge messages that came from Solid (loop prevention)
   if (message.solid_resource_url) return;
@@ -147,6 +154,18 @@ export async function bridgeSolidToHttp(
   resourceUrl: string,
   sessionId: string
 ): Promise<boolean> {
+  // SECURITY: Signal mode sessions must not accept bridged messages from Solid.
+  // Signal mode guarantees E2E encryption — only the HTTP channel with the
+  // encryption key can produce valid messages. Solid-bridged content would
+  // bypass encryption enforcement entirely.
+  const targetMode = getSessionMode(sessionId);
+  if (targetMode === 'signal') {
+    console.warn(
+      `[solid bridge] Rejected inbound resource ${resourceUrl} — target session is in signal mode`
+    );
+    return false;
+  }
+
   // Dedup check
   if (hasMessageFromSolid(sessionId, resourceUrl)) {
     return false;

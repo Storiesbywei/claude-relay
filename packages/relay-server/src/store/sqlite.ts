@@ -70,6 +70,7 @@ db.exec(`
     sender_name     TEXT,
     sent_at         TEXT NOT NULL,
     nostr_event_id  TEXT,
+    encrypted       INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );
 
@@ -126,7 +127,13 @@ const migrations: string[] = [
   "ALTER TABLE sessions ADD COLUMN pod_url TEXT",
   "ALTER TABLE sessions ADD COLUMN pod_synced_sequence INTEGER DEFAULT 0",
   "ALTER TABLE sessions ADD COLUMN solid_config TEXT",
+  // NOTE: Existing sessions created before signal mode was introduced will default
+  // to 'relay', which is correct — they were never created with signal guarantees.
+  // The mode column is IMMUTABLE after creation. There is intentionally NO UPDATE
+  // statement for mode anywhere in this file. Any code path that attempts to change
+  // a session's mode after creation is a security violation.
   "ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'relay'",
+  "ALTER TABLE messages ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0",
 ];
 
 for (const sql of migrations) {
@@ -168,6 +175,12 @@ const stmts = {
     SELECT * FROM sessions WHERE id = $id
   `),
 
+  // Lightweight mode-only lookup — avoids loading all messages/participants.
+  // Used by bridge modules for signal mode checks on hot paths.
+  getSessionMode: db.prepare(`
+    SELECT mode FROM sessions WHERE id = $id
+  `),
+
   getSessionByCreatorToken: db.prepare(`
     SELECT * FROM sessions WHERE creator_token = $token
   `),
@@ -205,8 +218,8 @@ const stmts = {
   `),
 
   insertMessage: db.prepare(`
-    INSERT INTO messages (session_id, message_id, sequence, type, title, content, tags, refs, context, sender_name, sent_at, nostr_event_id, solid_resource_url)
-    VALUES ($session_id, $message_id, $sequence, $type, $title, $content, $tags, $refs, $context, $sender_name, $sent_at, $nostr_event_id, $solid_resource_url)
+    INSERT INTO messages (session_id, message_id, sequence, type, title, content, tags, refs, context, sender_name, sent_at, nostr_event_id, solid_resource_url, encrypted)
+    VALUES ($session_id, $message_id, $sequence, $type, $title, $content, $tags, $refs, $context, $sender_name, $sent_at, $nostr_event_id, $solid_resource_url, $encrypted)
   `),
 
   countMessages: db.prepare(`
@@ -428,6 +441,7 @@ interface MessageRow {
   sent_at: string;
   nostr_event_id: string | null;
   solid_resource_url: string | null;
+  encrypted: number;
 }
 
 function rowToSession(row: SessionRow): Session {
@@ -486,6 +500,7 @@ function rowToMessage(row: MessageRow): StoredMessage {
     sent_at: row.sent_at,
     nostr_event_id: row.nostr_event_id ?? undefined,
     solid_resource_url: row.solid_resource_url ?? undefined,
+    ...(row.encrypted ? { encrypted: true } : {}),
   };
 }
 
@@ -540,6 +555,16 @@ export function getSession(id: string): Session | undefined {
   const row = stmts.getSessionById.get({ $id: id }) as SessionRow | null;
   if (!row) return undefined;
   return rowToSession(row);
+}
+
+/**
+ * Lightweight mode lookup — returns 'relay' | 'signal' without loading
+ * messages, participants, or pubkeys. Used by bridge modules on hot paths.
+ */
+export function getSessionMode(id: string): 'relay' | 'signal' | undefined {
+  const row = stmts.getSessionMode.get({ $id: id }) as { mode: string | null } | null;
+  if (!row) return undefined;
+  return (row.mode as 'relay' | 'signal') || 'relay';
 }
 
 export function getSessionByToken(token: string): Session | undefined {
@@ -657,6 +682,7 @@ const addMessageTx = db.transaction((sessionId: string, message: StoredMessage) 
     $sent_at: message.sent_at,
     $nostr_event_id: (message as any).nostr_event_id ?? null,
     $solid_resource_url: (message as any).solid_resource_url ?? null,
+    $encrypted: message.encrypted ? 1 : 0,
   });
 
   const now = new Date().toISOString();

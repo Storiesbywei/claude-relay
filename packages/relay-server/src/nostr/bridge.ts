@@ -20,7 +20,7 @@ import {
   scanAndGateMessage,
 } from "@claude-relay/shared";
 import { eventStore } from "./event-store.js";
-import { getSessionByPubkey, addMessage, getSession, hasMessageWithEventId } from "../store/sqlite.js";
+import { getSessionByPubkey, addMessage, getSession, getSessionMode, hasMessageWithEventId } from "../store/sqlite.js";
 import { publishToExternal } from "./relay-pool.js";
 import { checkBridgeRateLimit } from "../middleware/rate-limit.js";
 
@@ -124,7 +124,17 @@ export function messageToEvent(msg: StoredMessage, sessionId?: string): NostrEve
  *   subscribers can filter events to their own session. Without this,
  *   all WS subscribers would receive messages from ALL sessions (cross-session leak).
  */
-export function bridgeMessageToNostr(msg: StoredMessage, sessionId?: string): NostrEvent {
+export function bridgeMessageToNostr(msg: StoredMessage, sessionId?: string): NostrEvent | null {
+  // SECURITY: Signal mode sessions must not leak ciphertext to Nostr events.
+  // All message content in signal mode is E2E encrypted and must stay within
+  // the HTTP channel where only participants with the key can decrypt.
+  if (sessionId) {
+    const mode = getSessionMode(sessionId);
+    if (mode === 'signal') {
+      return null;
+    }
+  }
+
   const event = messageToEvent(msg, sessionId);
   eventStore.store(event);
   // Broadcast to all WS subscribers
@@ -193,6 +203,20 @@ export function bridgeNostrToHttp(event: NostrEvent): boolean {
   }
 
   if (!targetSessionId) return false;
+
+  // SECURITY: Signal mode sessions must not accept bridged messages from Nostr.
+  // Signal mode guarantees E2E encryption — only the HTTP channel with the
+  // encryption key can produce valid messages. Nostr-bridged content would
+  // bypass encryption enforcement entirely.
+  {
+    const mode = getSessionMode(targetSessionId);
+    if (mode === 'signal') {
+      console.warn(
+        `[nostr-bridge] Rejected inbound event ${event.id.slice(0, 8)} — target session is in signal mode`
+      );
+      return false;
+    }
+  }
 
   // Rate limit check (per-origin nostr bucket)
   if (token && !checkBridgeRateLimit(token, "nostr")) {

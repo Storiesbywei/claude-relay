@@ -121,7 +121,7 @@ export function registerApproveTool(server: McpServer) {
 
       try {
         // If session has an encryption secret, encrypt the content before sending
-        let payloadToSend = { ...pending.payload };
+        let payloadToSend = { ...pending.payload, origin: 'mcp' as const };
         let encrypted = false;
 
         if (session.encryption_secret) {
