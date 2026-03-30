@@ -1,5 +1,5 @@
 import type { Context, Next } from "hono";
-import { isValidToken } from "../store/memory.js";
+import { isValidToken } from "../store/sqlite.js";
 
 export async function authMiddleware(c: Context, next: Next) {
   const authHeader = c.req.header("Authorization");

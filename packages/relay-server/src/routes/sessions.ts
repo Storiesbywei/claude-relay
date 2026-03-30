@@ -7,7 +7,7 @@ import {
   isInviteToken,
   isValidToken,
   getParticipantNames,
-} from "../store/memory.js";
+} from "../store/sqlite.js";
 
 export const sessionRoutes = new Hono();
 

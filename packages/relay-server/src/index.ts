@@ -10,7 +10,7 @@ import { sessionRoutes } from "./routes/sessions.js";
 import { relayRoutes } from "./routes/relay.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
-import { sweepExpiredSessions } from "./store/memory.js";
+import { sweepExpiredSessions } from "./store/sqlite.js";
 import { RELAY_PORT, LIMITS, RELAY_INFO } from "@claude-relay/shared";
 import { handleOpen, handleClose, handleMessage, getNostrStats, setCanonicalRelayUrl } from "./nostr/handler.js";
 
