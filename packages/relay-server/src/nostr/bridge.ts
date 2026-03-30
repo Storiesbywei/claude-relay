@@ -18,6 +18,7 @@ import {
   signEvent,
 } from "@claude-relay/shared";
 import { eventStore } from "./event-store.js";
+import { checkBridgeRateLimit } from "../middleware/rate-limit.js";
 
 // Lazy import to avoid circular dependency — set by handler.ts init
 let _broadcastEvent: ((event: NostrEvent) => void) | null = null;
@@ -177,4 +178,33 @@ export function getServerPubkey(): string {
 /** Get the server's npub (for display) */
 export function getServerNpub(): string {
   return serverKeypair.npub;
+}
+
+/**
+ * Bridge a Nostr event into the HTTP session store.
+ *
+ * Checks the per-origin (nostr) rate limit before injecting.  If the
+ * token's nostr bucket is exhausted, the message is logged and dropped.
+ *
+ * @param event   - Validated Nostr event (already stored in eventStore)
+ * @param token   - Auth token of the session that will receive the message
+ * @param addMsg  - Callback to insert into the session store (avoids circular dep)
+ * @returns `true` if the message was accepted, `false` if rate-limited
+ */
+export function bridgeNostrToHttp(
+  event: NostrEvent,
+  token: string,
+  addMsg: (sessionId: string, message: StoredMessage) => void,
+  sessionId: string,
+): boolean {
+  if (!checkBridgeRateLimit(token, "nostr")) {
+    console.warn(
+      `[nostr-bridge] Rate limited — dropping event ${event.id.slice(0, 8)} for token ${token.slice(0, 8)}…`
+    );
+    return false;
+  }
+
+  const message = eventToMessage(event);
+  addMsg(sessionId, message);
+  return true;
 }
