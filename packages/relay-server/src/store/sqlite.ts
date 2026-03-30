@@ -88,6 +88,33 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_nostr_pubkeys_pubkey ON nostr_pubkeys(pubkey);
+
+  CREATE TABLE IF NOT EXISTS solid_bindings (
+    session_id TEXT NOT NULL,
+    web_id     TEXT NOT NULL,
+    token      TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, web_id),
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_solid_bindings_web_id ON solid_bindings(web_id);
+`);
+
+// ---------------------------------------------------------------------------
+// Schema migrations — add columns to existing tables
+// ---------------------------------------------------------------------------
+
+// Add solid_resource_url column if it doesn't exist
+try {
+  db.exec(`ALTER TABLE messages ADD COLUMN solid_resource_url TEXT`);
+} catch {
+  // Column already exists — ignore
+}
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_messages_solid_url
+    ON messages(session_id, solid_resource_url)
+    WHERE solid_resource_url IS NOT NULL;
 `);
 
 // ---------------------------------------------------------------------------
@@ -176,8 +203,8 @@ const stmts = {
   `),
 
   insertMessage: db.prepare(`
-    INSERT INTO messages (session_id, message_id, sequence, type, title, content, tags, refs, context, sender_name, sent_at, nostr_event_id)
-    VALUES ($session_id, $message_id, $sequence, $type, $title, $content, $tags, $refs, $context, $sender_name, $sent_at, $nostr_event_id)
+    INSERT INTO messages (session_id, message_id, sequence, type, title, content, tags, refs, context, sender_name, sent_at, nostr_event_id, solid_resource_url)
+    VALUES ($session_id, $message_id, $sequence, $type, $title, $content, $tags, $refs, $context, $sender_name, $sent_at, $nostr_event_id, $solid_resource_url)
   `),
 
   countMessages: db.prepare(`
@@ -241,6 +268,7 @@ const stmts = {
     SELECT 1 FROM sessions WHERE id = $session_id AND invite_token = $token LIMIT 1
   `),
 
+<<<<<<< HEAD
   // -------------------------------------------------------------------------
   // Solid sync queue + config prepared statements
   // -------------------------------------------------------------------------
@@ -321,6 +349,29 @@ const stmts = {
     FROM sessions
     WHERE solid_config IS NOT NULL
   `),
+
+  // Solid bindings (Level 3 federation)
+  insertSolidBinding: db.prepare(`
+    INSERT OR REPLACE INTO solid_bindings (session_id, web_id, token, created_at)
+    VALUES ($session_id, $web_id, $token, $created_at)
+  `),
+
+  getSessionByWebId: db.prepare(`
+    SELECT sb.token, s.* FROM solid_bindings sb
+    JOIN sessions s ON s.id = sb.session_id
+    WHERE sb.web_id = $web_id
+  `),
+
+  getSolidBindingsForSession: db.prepare(`
+    SELECT web_id, token FROM solid_bindings WHERE session_id = $session_id
+  `),
+
+  // Solid resource URL dedup
+  hasSolidUrl: db.prepare(`
+    SELECT 1 FROM messages
+    WHERE session_id = $session_id AND solid_resource_url = $url
+    LIMIT 1
+  `),
 };
 
 // ---------------------------------------------------------------------------
@@ -366,6 +417,7 @@ interface MessageRow {
   sender_name: string | null;
   sent_at: string;
   nostr_event_id: string | null;
+  solid_resource_url: string | null;
 }
 
 function rowToSession(row: SessionRow): Session {
@@ -422,6 +474,7 @@ function rowToMessage(row: MessageRow): StoredMessage {
     sender_name: row.sender_name ?? undefined,
     sent_at: row.sent_at,
     nostr_event_id: row.nostr_event_id ?? undefined,
+    solid_resource_url: row.solid_resource_url ?? undefined,
   };
 }
 
@@ -589,6 +642,7 @@ const addMessageTx = db.transaction((sessionId: string, message: StoredMessage) 
     $sender_name: message.sender_name ?? null,
     $sent_at: message.sent_at,
     $nostr_event_id: (message as any).nostr_event_id ?? null,
+    $solid_resource_url: (message as any).solid_resource_url ?? null,
   });
 
   const now = new Date().toISOString();
@@ -662,6 +716,7 @@ export function getSessionCount(): number {
 }
 
 // ---------------------------------------------------------------------------
+<<<<<<< HEAD
 // Solid Pod sync — store helpers
 // ---------------------------------------------------------------------------
 
@@ -711,3 +766,32 @@ export function getSolidEnabledSessions(): { sessionId: string; config: SolidExp
 
 // Export the raw db instance for use by sync-queue.ts and other modules
 export { db };
+
+// ---------------------------------------------------------------------------
+// Solid bindings (Level 3 federation)
+// ---------------------------------------------------------------------------
+
+export function bindWebIdToSession(sessionId: string, webId: string, token: string): void {
+  stmts.insertSolidBinding.run({
+    $session_id: sessionId,
+    $web_id: webId,
+    $token: token,
+    $created_at: new Date().toISOString(),
+  });
+}
+
+export function getSessionByWebId(webId: string): { session: Session; token: string } | undefined {
+  const row = stmts.getSessionByWebId.get({ $web_id: webId }) as (SessionRow & { token: string }) | null;
+  if (!row) return undefined;
+  const token = row.token;
+  return { session: rowToSession(row), token };
+}
+
+export function getSolidBindingsForSession(sessionId: string): { webId: string; token: string }[] {
+  const rows = stmts.getSolidBindingsForSession.all({ $session_id: sessionId }) as { web_id: string; token: string }[];
+  return rows.map(r => ({ webId: r.web_id, token: r.token }));
+}
+
+export function hasMessageWithSolidUrl(sessionId: string, resourceUrl: string): boolean {
+  return !!stmts.hasSolidUrl.get({ $session_id: sessionId, $url: resourceUrl });
+}

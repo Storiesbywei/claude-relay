@@ -34,6 +34,8 @@ export interface StoredMessage {
   sent_at: string;
   // Nostr event ID this message was created from (for dedup)
   nostr_event_id?: string;
+  // Solid Pod resource URL this message was created from (for dedup)
+  solid_resource_url?: string;
 }
 
 export interface CreateSessionResponse {

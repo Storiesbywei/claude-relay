@@ -4,6 +4,7 @@ import type { StoredMessage } from "@claude-relay/shared";
 import { addMessage, getMessages, getSession, getParticipantNames, subscribe } from "../store/sqlite.js";
 import { streamSSE } from "hono/streaming";
 import { bridgeMessageToNostr } from "../nostr/bridge.js";
+import { bridgeMessageToSolid } from "../solid/bridge.js";
 
 export const relayRoutes = new Hono();
 
@@ -62,6 +63,11 @@ relayRoutes.post("/:session_id", async (c) => {
 
     // Bridge: also publish to Nostr event store so WS subscribers get it
     bridgeMessageToNostr(message, sessionId);
+
+    // Bridge to Solid Pod (async, non-blocking)
+    bridgeMessageToSolid(message, sessionId).catch(err => {
+      console.error(`[solid bridge] Failed to bridge message: ${err.message}`);
+    });
 
     return c.json(
       {
