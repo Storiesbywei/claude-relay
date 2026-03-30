@@ -52,6 +52,40 @@ function getAvatarColor(name) {
   return avatarColorMap[name];
 }
 
+// --------------- DOM Cache ---------------
+// Cache frequently accessed elements to avoid repeated getElementById calls
+var dom = {};
+
+function cacheDom() {
+  dom.chronicle = document.getElementById('chronicle');
+  dom.msgInput = document.getElementById('msg-input');
+  dom.connectionPill = document.getElementById('connection-pill');
+  dom.connectionLabel = document.getElementById('connection-label');
+  dom.folioCounter = document.getElementById('folio-counter');
+  dom.infoCount = document.getElementById('info-count');
+  dom.infoId = document.getElementById('info-id');
+  dom.infoExpires = document.getElementById('info-expires');
+  dom.infoUptime = document.getElementById('info-uptime');
+  dom.sessionName = document.getElementById('session-name');
+  dom.inviteBar = document.getElementById('invite-bar');
+  dom.inviteToken = document.getElementById('invite-token');
+  dom.participantList = document.getElementById('participant-list');
+  dom.setup = document.getElementById('setup');
+  dom.main = document.getElementById('main');
+  dom.httpDot = document.getElementById('http-dot');
+  dom.httpStat = document.getElementById('http-stat');
+  dom.dotHttp = document.getElementById('dot-http');
+  dom.nostrDot = document.getElementById('nostr-dot');
+  dom.nostrStat = document.getElementById('nostr-stat');
+  dom.dotNostr = document.getElementById('dot-nostr');
+  dom.solidDot = document.getElementById('solid-dot');
+  dom.solidStat = document.getElementById('solid-stat');
+  dom.dotSolid = document.getElementById('dot-solid');
+  dom.idNpub = document.getElementById('id-npub');
+  dom.srLive = document.getElementById('sr-live');
+  dom.ariaAnnouncer = document.getElementById('aria-announcer');
+}
+
 // --------------- Helpers ---------------
 
 function escapeHtml(s) {
@@ -228,25 +262,25 @@ function startSession(sess) {
   history.replaceState(null, '', url.toString());
 
   // Switch screens
-  document.getElementById('setup').style.display = 'none';
-  document.getElementById('main').style.display = 'flex';
+  dom.setup.style.display = 'none';
+  dom.main.style.display = 'flex';
 
   // Populate UI
-  document.getElementById('session-name').textContent = sess.name;
-  document.getElementById('info-id').textContent = sess.id.slice(0, 8) + '...';
-  document.getElementById('info-id').title = sess.id;
-  document.getElementById('info-expires').textContent = new Date(sess.expires_at).toLocaleTimeString();
+  dom.sessionName.textContent = sess.name;
+  dom.infoId.textContent = sess.id.slice(0, 8) + '...';
+  dom.infoId.title = sess.id;
+  dom.infoExpires.textContent = new Date(sess.expires_at).toLocaleTimeString();
 
   // Clear chronicle
-  var chronicle = document.getElementById('chronicle');
+  var chronicle = dom.chronicle;
   chronicle.innerHTML = '<div class="chronicle-empty" id="empty-state"><div class="empty-diamond"></div><div class="empty-title">The chronicle awaits</div><div class="empty-sub">Send the first message to begin</div></div>';
 
   // Show invite bar for creator
   if (sess.invite) {
-    document.getElementById('invite-bar').style.display = 'flex';
-    document.getElementById('invite-token').textContent = sess.invite;
+    dom.inviteBar.style.display = 'flex';
+    dom.inviteToken.textContent = sess.invite;
   } else {
-    document.getElementById('invite-bar').style.display = 'none';
+    dom.inviteBar.style.display = 'none';
   }
 
   // Update connection pill
@@ -255,10 +289,9 @@ function startSession(sess) {
   // Update folio counter
   updateFolioCounter();
 
-  // Start polling
-  if (state.pollTimer) clearInterval(state.pollTimer);
-  poll();
-  state.pollTimer = setInterval(poll, 2000);
+  // Start polling (setTimeout-based — schedules next after completion, no stacking)
+  if (state.pollTimer) clearTimeout(state.pollTimer);
+  poll(); // first poll fires immediately; schedulePoll() called in finally{}
 
   // Start health check
   if (state.healthTimer) clearInterval(state.healthTimer);
@@ -267,30 +300,50 @@ function startSession(sess) {
 
   // Refresh session info
   refreshStatus();
+
+  // Focus management: move focus to composer for immediate typing
+  var composerInput = dom.msgInput;
+  if (composerInput) {
+    setTimeout(function() { composerInput.focus(); }, 100);
+  }
+
+  // Announce session start to screen readers
+  announceToSR('Session started: ' + sess.name + '. You can now send messages.');
 }
 
 function endSession() {
-  if (state.pollTimer) clearInterval(state.pollTimer);
+  if (state.pollTimer) clearTimeout(state.pollTimer);
   if (state.healthTimer) clearInterval(state.healthTimer);
   state.session = null;
   state.messages = [];
   state.cursor = 0;
   state.folioCount = 0;
+  _seenMessageIds.clear();
   localStorage.removeItem('relay_session');
 
   // Clear URL params
   history.replaceState(null, '', location.pathname);
 
-  document.getElementById('main').style.display = 'none';
-  document.getElementById('setup').style.display = 'flex';
+  dom.main.style.display = 'none';
+  dom.setup.style.display = 'flex';
   updateConnectionPill(false);
+
+  // Return focus to the create session button
+  var createBtn = document.getElementById('btn-create');
+  if (createBtn) {
+    setTimeout(function() { createBtn.focus(); }, 100);
+  }
+
+  announceToSR('Session ended. Returned to setup screen.');
 }
 
 // --------------- Connection Status ---------------
 
+var _lastConnectionState = null;
+
 function updateConnectionPill(connected) {
-  const pill = document.getElementById('connection-pill');
-  const label = document.getElementById('connection-label');
+  const pill = dom.connectionPill;
+  const label = dom.connectionLabel;
   if (connected) {
     pill.className = 'connection-pill';
     label.textContent = 'Connected';
@@ -298,12 +351,18 @@ function updateConnectionPill(connected) {
     pill.className = 'connection-pill disconnected';
     label.textContent = 'Disconnected';
   }
+
+  // Announce connection state changes to screen readers
+  if (_lastConnectionState !== null && _lastConnectionState !== connected) {
+    announceToSR(connected ? 'Connection restored' : 'Connection lost');
+  }
+  _lastConnectionState = connected;
 }
 
 // --------------- Folio Counter ---------------
 
 function updateFolioCounter() {
-  const el = document.getElementById('folio-counter');
+  const el = dom.folioCounter;
   if (state.folioCount === 0) {
     el.textContent = 'Folio i';
   } else {
@@ -318,58 +377,73 @@ async function getHealth() {
     const data = await fetch(location.origin + '/health').then(function(r) { return r.json(); });
 
     // HTTP status — always active if health responds
-    document.getElementById('http-dot').className = 'protocol-dot live';
-    document.getElementById('http-stat').textContent = 'v' + (data.version || '?') + ' — ' + (data.sessions || 0) + ' sessions';
-    document.getElementById('dot-http').className = 'bridge-dot active';
+    dom.httpDot.className = 'protocol-dot live';
+    dom.httpDot.setAttribute('aria-label', 'HTTP: active');
+    dom.httpStat.textContent = 'v' + (data.version || '?') + ' — ' + (data.sessions || 0) + ' sessions';
+    dom.dotHttp.className = 'bridge-dot active';
+    dom.dotHttp.setAttribute('aria-label', 'HTTP: active');
 
     // Nostr status
     if (data.nostr) {
       var nostrConnections = data.nostr.connections || 0;
       var nostrEvents = data.nostr.events_received || 0;
       if (nostrConnections > 0) {
-        document.getElementById('nostr-dot').className = 'protocol-dot live';
-        document.getElementById('dot-nostr').className = 'bridge-dot active';
-        document.getElementById('nostr-stat').textContent = nostrConnections + ' ws, ' + nostrEvents + ' events';
+        dom.nostrDot.className = 'protocol-dot live';
+        dom.nostrDot.setAttribute('aria-label', 'Nostr: active');
+        dom.dotNostr.className = 'bridge-dot active';
+        dom.dotNostr.setAttribute('aria-label', 'Nostr: active');
+        dom.nostrStat.textContent = nostrConnections + ' ws, ' + nostrEvents + ' events';
       } else {
-        document.getElementById('nostr-dot').className = 'protocol-dot off';
-        document.getElementById('dot-nostr').className = 'bridge-dot inactive';
-        document.getElementById('nostr-stat').textContent = nostrEvents + ' events';
+        dom.nostrDot.className = 'protocol-dot off';
+        dom.nostrDot.setAttribute('aria-label', 'Nostr: inactive');
+        dom.dotNostr.className = 'bridge-dot inactive';
+        dom.dotNostr.setAttribute('aria-label', 'Nostr: inactive');
+        dom.nostrStat.textContent = nostrEvents + ' events';
       }
 
       // Update npub
       if (data.nostr.server_pubkey) {
-        document.getElementById('id-npub').textContent = data.nostr.server_pubkey;
-        document.getElementById('id-npub').title = data.nostr.server_pubkey;
+        dom.idNpub.textContent = data.nostr.server_pubkey;
+        dom.idNpub.title = data.nostr.server_pubkey;
       }
     }
 
     // Solid status
     if (data.solid) {
       if (data.solid.sync_engine === 'running') {
-        document.getElementById('solid-dot').className = 'protocol-dot live';
-        document.getElementById('dot-solid').className = 'bridge-dot active';
-        document.getElementById('solid-stat').textContent = 'Sync running, q:' + (data.solid.queue_depth || 0);
+        dom.solidDot.className = 'protocol-dot live';
+        dom.solidDot.setAttribute('aria-label', 'Solid: active');
+        dom.dotSolid.className = 'bridge-dot active';
+        dom.dotSolid.setAttribute('aria-label', 'Solid: active');
+        dom.solidStat.textContent = 'Sync running, q:' + (data.solid.queue_depth || 0);
       } else {
-        document.getElementById('solid-dot').className = 'protocol-dot off';
-        document.getElementById('dot-solid').className = 'bridge-dot inactive';
-        document.getElementById('solid-stat').textContent = 'Stopped';
+        dom.solidDot.className = 'protocol-dot off';
+        dom.solidDot.setAttribute('aria-label', 'Solid: inactive');
+        dom.dotSolid.className = 'bridge-dot inactive';
+        dom.dotSolid.setAttribute('aria-label', 'Solid: inactive');
+        dom.solidStat.textContent = 'Stopped';
       }
     }
 
     // Uptime
     if (data.uptime_seconds) {
-      document.getElementById('info-uptime').textContent = formatUptime(data.uptime_seconds);
+      dom.infoUptime.textContent = formatUptime(data.uptime_seconds);
     }
 
     updateConnectionPill(true);
   } catch (e) {
     updateConnectionPill(false);
-    document.getElementById('http-dot').className = 'protocol-dot off';
-    document.getElementById('dot-http').className = 'bridge-dot inactive';
+    dom.httpDot.className = 'protocol-dot off';
+    dom.httpDot.setAttribute('aria-label', 'HTTP: inactive');
+    dom.dotHttp.className = 'bridge-dot inactive';
+    dom.dotHttp.setAttribute('aria-label', 'HTTP: inactive');
   }
 }
 
 // --------------- Polling ---------------
+
+// Use a Set for O(1) duplicate detection instead of Array.find
+var _seenMessageIds = new Set();
 
 async function poll() {
   if (!state.session) return;
@@ -380,7 +454,8 @@ async function poll() {
       var newMessages = [];
       for (var i = 0; i < data.messages.length; i++) {
         var msg = data.messages[i];
-        if (!state.messages.find(function(m) { return m.message_id === msg.message_id; })) {
+        if (!_seenMessageIds.has(msg.message_id)) {
+          _seenMessageIds.add(msg.message_id);
           state.messages.push(msg);
           newMessages.push(msg);
         }
@@ -392,6 +467,7 @@ async function poll() {
 
         for (var j = 0; j < newMessages.length; j++) {
           renderMessage(newMessages[j]);
+          announceMessage(newMessages[j]);
         }
         updateCount();
         autoScroll();
@@ -400,14 +476,23 @@ async function poll() {
     updateConnectionPill(true);
   } catch (e) {
     updateConnectionPill(false);
+  } finally {
+    // Schedule next poll AFTER current completes — prevents stacking
+    schedulePoll();
   }
+}
+
+function schedulePoll() {
+  if (!state.session) return;
+  if (state.pollTimer) clearTimeout(state.pollTimer);
+  state.pollTimer = setTimeout(poll, settings.pollInterval || 2000);
 }
 
 async function refreshStatus() {
   if (!state.session) return;
   try {
     const data = await api('GET', '/sessions/' + state.session.id);
-    var list = document.getElementById('participant-list');
+    var list = dom.participantList;
     list.innerHTML = '';
     var participants = data.participants || [];
     for (var i = 0; i < participants.length; i++) {
@@ -458,6 +543,7 @@ function renderMessage(msg) {
   // Footer
   var origin = msg.origin || 'http';
   var hash = (msg.message_id || '').slice(0, 8);
+  var originDisplay = settings.showOriginTags ? '' : 'display:none';
 
   entry.innerHTML =
     '<div class="entry-time-col">' +
@@ -476,25 +562,28 @@ function renderMessage(msg) {
       pullQuote +
       '<div class="ec-body">' + renderedContent + '</div>' +
       '<div class="ec-footer">' +
-        '<span class="origin-tag">' + escapeHtml(origin) + '</span>' +
+        '<span class="origin-tag" style="' + originDisplay + '">' + escapeHtml(origin) + '</span>' +
         '<span class="event-hash">#' + hash + '</span>' +
       '</div>' +
     '</div>';
 
-  document.getElementById('chronicle').appendChild(entry);
+  dom.chronicle.appendChild(entry);
 
   // Remove the "new" animation class after it plays
   setTimeout(function() { entry.classList.remove('new'); }, 400);
+
+  // Announce to screen reader
+  announceToSR('New ' + typeInfo.label + ' message from ' + senderName);
 }
 
 function updateCount() {
   var n = state.messages.length;
-  document.getElementById('info-count').textContent = n;
+  dom.infoCount.textContent = n;
 }
 
 function autoScroll() {
   if (state.userScrolled) return;
-  var el = document.getElementById('chronicle');
+  var el = dom.chronicle;
   el.scrollTop = el.scrollHeight;
 }
 
@@ -506,7 +595,7 @@ async function sendMessage() {
   var typeInfo = TYPES[typeKey];
   if (!typeInfo) return;
 
-  var input = document.getElementById('msg-input');
+  var input = dom.msgInput;
   var content = input.value.trim();
   if (!content) return;
 
@@ -556,13 +645,54 @@ async function exportSession(format) {
 
 function initComposerTabs() {
   var tabs = document.querySelectorAll('.composer-tab');
+  var tabsArray = Array.prototype.slice.call(tabs);
+
+  function activateTab(tab) {
+    tabs.forEach(function(t) {
+      t.classList.remove('active');
+      t.setAttribute('aria-selected', 'false');
+      t.setAttribute('tabindex', '-1');
+    });
+    tab.classList.add('active');
+    tab.setAttribute('aria-selected', 'true');
+    tab.setAttribute('tabindex', '0');
+    tab.focus();
+    state.activeType = tab.getAttribute('data-type');
+  }
+
   tabs.forEach(function(tab) {
     tab.addEventListener('click', function() {
-      tabs.forEach(function(t) { t.classList.remove('active'); });
-      tab.classList.add('active');
-      state.activeType = tab.getAttribute('data-type');
+      activateTab(tab);
     });
   });
+
+  // Keyboard navigation: Arrow keys, Home, End
+  var tablist = document.getElementById('composer-tabs');
+  if (tablist) {
+    tablist.addEventListener('keydown', function(e) {
+      var currentIdx = tabsArray.indexOf(document.activeElement);
+      if (currentIdx < 0) return;
+
+      var newIdx = -1;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        newIdx = (currentIdx + 1) % tabsArray.length;
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        newIdx = (currentIdx - 1 + tabsArray.length) % tabsArray.length;
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        newIdx = 0;
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        newIdx = tabsArray.length - 1;
+      }
+
+      if (newIdx >= 0) {
+        activateTab(tabsArray[newIdx]);
+      }
+    });
+  }
 }
 
 // --------------- Textarea Auto-resize ---------------
@@ -579,8 +709,25 @@ function initMeshCanvas() {
   if (!canvas) return;
   var ctx = canvas.getContext('2d');
   var particles = [];
-  var particleCount = 35; // Fewer — ambient, not arcade
+  var particleCount = 28; // Reduced from 35 — ambient, not arcade
   var connectionDist = 180;
+  var connectionDistSq = connectionDist * connectionDist; // Avoid sqrt in hot loop
+
+  // Cache theme colors — update on theme change instead of every frame
+  var meshColor = '139,92,246';
+  var meshAlpha = 0.04;
+  var dotAlpha = 0.1;
+
+  function updateMeshColors() {
+    var style = getComputedStyle(document.documentElement);
+    meshColor = style.getPropertyValue('--mesh-color').trim() || '139,92,246';
+    meshAlpha = parseFloat(style.getPropertyValue('--mesh-alpha')) || 0.04;
+    dotAlpha = parseFloat(style.getPropertyValue('--mesh-dot-alpha')) || 0.1;
+  }
+  updateMeshColors();
+  // Re-read colors when theme changes (MutationObserver on data-theme attribute)
+  var _meshObserver = new MutationObserver(updateMeshColors);
+  _meshObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-high-contrast'] });
 
   function resize() {
     canvas.width = window.innerWidth;
@@ -600,6 +747,12 @@ function initMeshCanvas() {
   }
 
   function draw() {
+    // Skip rendering when tab is hidden — saves CPU/battery
+    if (document.hidden) {
+      requestAnimationFrame(draw);
+      return;
+    }
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     for (var i = 0; i < particles.length; i++) {
@@ -612,19 +765,15 @@ function initMeshCanvas() {
       if (p.y > canvas.height) p.y = 0;
     }
 
-    // Read theme colors from CSS variables
-    var style = getComputedStyle(document.documentElement);
-    var meshColor = style.getPropertyValue('--mesh-color').trim() || '139,92,246';
-    var meshAlpha = parseFloat(style.getPropertyValue('--mesh-alpha')) || 0.04;
-    var dotAlpha = parseFloat(style.getPropertyValue('--mesh-dot-alpha')) || 0.1;
-
     // Faint connections — barely visible
+    // Use squared distance to avoid sqrt per pair
     for (var i = 0; i < particles.length; i++) {
       for (var j = i + 1; j < particles.length; j++) {
         var dx = particles[i].x - particles[j].x;
         var dy = particles[i].y - particles[j].y;
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < connectionDist) {
+        var distSq = dx * dx + dy * dy;
+        if (distSq < connectionDistSq) {
+          var dist = Math.sqrt(distSq);
           var alpha = (1 - dist / connectionDist) * meshAlpha;
           ctx.strokeStyle = 'rgba(' + meshColor + ',' + alpha + ')';
           ctx.lineWidth = 0.3;
@@ -654,16 +803,26 @@ function initMeshCanvas() {
 // --------------- Scroll Detection ---------------
 
 function initScrollDetection() {
-  var chronicle = document.getElementById('chronicle');
+  var chronicle = dom.chronicle;
+  var _scrollTicking = false;
   chronicle.addEventListener('scroll', function() {
-    var atBottom = chronicle.scrollHeight - chronicle.scrollTop - chronicle.clientHeight < 80;
-    state.userScrolled = !atBottom;
-  });
+    if (!_scrollTicking) {
+      _scrollTicking = true;
+      requestAnimationFrame(function() {
+        var atBottom = chronicle.scrollHeight - chronicle.scrollTop - chronicle.clientHeight < 80;
+        state.userScrolled = !atBottom;
+        _scrollTicking = false;
+      });
+    }
+  }, { passive: true });
 }
 
 // --------------- Init ---------------
 
 function init() {
+  // Cache DOM elements for performance (avoid repeated getElementById)
+  cacheDom();
+
   // Start mesh canvas
   initMeshCanvas();
 
@@ -699,16 +858,20 @@ function init() {
   document.getElementById('btn-join').addEventListener('click', joinSession);
   document.getElementById('btn-send').addEventListener('click', sendMessage);
   document.getElementById('btn-end').addEventListener('click', endSession);
-  document.getElementById('btn-export').addEventListener('click', function() { exportSession('json'); });
   document.getElementById('btn-export-json').addEventListener('click', function() { exportSession('json'); });
   document.getElementById('btn-export-md').addEventListener('click', function() { exportSession('md'); });
 
   document.getElementById('btn-copy').addEventListener('click', function() {
-    var tokenText = document.getElementById('invite-token').textContent;
+    var tokenText = dom.inviteToken.textContent;
     navigator.clipboard.writeText(tokenText);
     var btn = document.getElementById('btn-copy');
     btn.textContent = 'Copied';
-    setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+    btn.setAttribute('aria-label', 'Invite token copied');
+    announceToSR('Invite token copied to clipboard');
+    setTimeout(function() {
+      btn.textContent = 'Copy';
+      btn.setAttribute('aria-label', 'Copy invite token');
+    }, 1500);
   });
 
   // Enter key on setup inputs
@@ -722,14 +885,14 @@ function init() {
   // Composer
   initComposerTabs();
 
-  document.getElementById('msg-input').addEventListener('keydown', function(e) {
+  dom.msgInput.addEventListener('keydown', function(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
       sendMessage();
     }
   });
 
-  document.getElementById('msg-input').addEventListener('input', function() {
+  dom.msgInput.addEventListener('input', function() {
     autoResize(this);
   });
 
@@ -739,9 +902,8 @@ function init() {
   // iOS keyboard handling — keep composer visible
   initKeyboardHandler();
 
-  // Theme switcher
-  initTheme();
-  document.getElementById('btn-theme').addEventListener('click', cycleTheme);
+  // Settings panel (replaces old theme switcher)
+  initSettings();
 
   // Periodically refresh participant list
   setInterval(function() {
@@ -777,42 +939,486 @@ function initKeyboardHandler() {
   window.visualViewport.addEventListener('scroll', onViewportResize);
 }
 
-// --------------- Theme Management ---------------
-// Cycle: auto (system) → dark → oled → auto
-// "auto" means no data-theme attribute — respects prefers-color-scheme
+// --------------- Settings Management ---------------
 
-var THEMES = ['auto', 'dark', 'oled'];
-var THEME_ICONS = { auto: 'ph-circle-half', dark: 'ph-moon', oled: 'ph-eye' };
-var THEME_LABELS = { auto: 'Auto (system)', dark: 'Dark', oled: 'OLED Black' };
+var SETTINGS_DEFAULTS = {
+  theme: 'auto',
+  font: 'default',
+  fontSize: 'default',
+  meshEnabled: true,
+  reducedMotion: false,
+  highContrast: false,
+  screenReaderAnnounce: false,
+  simpleLanguage: false,
+  pollInterval: 2000,
+  showOriginTags: true,
+  advancedMode: false,
+};
 
-function initTheme() {
-  var saved = localStorage.getItem('relay_theme') || 'auto';
-  applyTheme(saved);
+var FONT_SIZE_STEPS = ['small', 'default', 'large', 'xlarge'];
+var FONT_SIZE_LABELS = { small: 'Small', 'default': 'Default', large: 'Large', xlarge: 'Extra Large' };
+
+var settings = {};
+
+function loadSettings() {
+  var saved = {};
+  try {
+    var raw = localStorage.getItem('relay_settings');
+    if (raw) saved = JSON.parse(raw);
+  } catch (e) { /* ignore */ }
+
+  // Merge with defaults
+  settings = {};
+  for (var key in SETTINGS_DEFAULTS) {
+    settings[key] = saved.hasOwnProperty(key) ? saved[key] : SETTINGS_DEFAULTS[key];
+  }
+
+  // Migrate old relay_theme if present
+  var oldTheme = localStorage.getItem('relay_theme');
+  if (oldTheme && !saved.hasOwnProperty('theme')) {
+    settings.theme = oldTheme;
+    localStorage.removeItem('relay_theme');
+  }
+
+  applyAllSettings();
+  syncSettingsUI();
 }
 
-function applyTheme(theme) {
+function saveSetting(key, value) {
+  settings[key] = value;
+  localStorage.setItem('relay_settings', JSON.stringify(settings));
+  applySetting(key, value);
+}
+
+function applyAllSettings() {
+  for (var key in settings) {
+    applySetting(key, settings[key]);
+  }
+}
+
+function applySetting(key, value) {
   var root = document.documentElement;
-  if (theme === 'auto') {
-    root.removeAttribute('data-theme');
-  } else {
-    root.setAttribute('data-theme', theme);
+
+  switch (key) {
+    case 'theme':
+      if (value === 'auto') {
+        root.removeAttribute('data-theme');
+      } else {
+        root.setAttribute('data-theme', value);
+      }
+      // Update color-scheme meta for browser chrome
+      var colorSchemeMeta = document.querySelector('meta[name="color-scheme"]');
+      if (colorSchemeMeta) {
+        colorSchemeMeta.setAttribute('content', value === 'light' ? 'light' : 'dark');
+      }
+      break;
+
+    case 'font':
+      if (value === 'default') {
+        root.removeAttribute('data-font');
+      } else {
+        root.setAttribute('data-font', value);
+      }
+      break;
+
+    case 'fontSize':
+      if (value === 'default') {
+        root.removeAttribute('data-font-size');
+      } else {
+        root.setAttribute('data-font-size', value);
+      }
+      break;
+
+    case 'meshEnabled':
+      var canvas = document.getElementById('mesh-canvas');
+      if (canvas) canvas.style.display = value ? '' : 'none';
+      break;
+
+    case 'reducedMotion':
+      if (value) {
+        root.setAttribute('data-reduced-motion', '');
+      } else {
+        root.removeAttribute('data-reduced-motion');
+      }
+      break;
+
+    case 'highContrast':
+      if (value) {
+        root.setAttribute('data-high-contrast', '');
+      } else {
+        root.removeAttribute('data-high-contrast');
+      }
+      break;
+
+    case 'screenReaderAnnounce':
+      // Handled at announcement time — no DOM change needed
+      break;
+
+    case 'simpleLanguage':
+      // Applied contextually when rendering text — no DOM change needed
+      break;
+
+    case 'pollInterval':
+      // Restart poll timer if session is active (setTimeout-based)
+      if (state.session && state.pollTimer) {
+        clearTimeout(state.pollTimer);
+        schedulePoll();
+      }
+      break;
+
+    case 'showOriginTags':
+      var tags = document.querySelectorAll('.origin-tag');
+      for (var i = 0; i < tags.length; i++) {
+        tags[i].style.display = value ? '' : 'none';
+      }
+      break;
+
+    case 'advancedMode':
+      var panel = document.getElementById('settings-panel');
+      if (panel) {
+        if (value) {
+          panel.classList.add('advanced');
+        } else {
+          panel.classList.remove('advanced');
+        }
+      }
+      break;
   }
-  // Update icon
-  var icon = document.getElementById('theme-icon');
-  if (icon) {
-    icon.className = 'ph ' + (THEME_ICONS[theme] || 'ph-moon');
-  }
-  // Update title
-  var btn = document.getElementById('btn-theme');
-  if (btn) btn.title = 'Theme: ' + (THEME_LABELS[theme] || theme);
-  localStorage.setItem('relay_theme', theme);
 }
 
-function cycleTheme() {
-  var current = localStorage.getItem('relay_theme') || 'auto';
-  var idx = THEMES.indexOf(current);
-  var next = THEMES[(idx + 1) % THEMES.length];
-  applyTheme(next);
+function syncSettingsUI() {
+  // Theme dropdown
+  var themeEl = document.getElementById('setting-theme');
+  if (themeEl) themeEl.value = settings.theme;
+
+  // Font dropdown
+  var fontEl = document.getElementById('setting-font');
+  if (fontEl) fontEl.value = settings.font;
+
+  // Font size slider
+  var fontSizeEl = document.getElementById('setting-font-size');
+  var fontSizeLabel = document.getElementById('font-size-label');
+  if (fontSizeEl) {
+    var idx = FONT_SIZE_STEPS.indexOf(settings.fontSize);
+    fontSizeEl.value = idx >= 0 ? idx : 1;
+  }
+  if (fontSizeLabel) fontSizeLabel.textContent = FONT_SIZE_LABELS[settings.fontSize] || 'Default';
+
+  // Mesh toggle
+  var meshEl = document.getElementById('setting-mesh');
+  if (meshEl) meshEl.checked = settings.meshEnabled;
+
+  // Reduced motion
+  var rmEl = document.getElementById('setting-reduced-motion');
+  if (rmEl) rmEl.checked = settings.reducedMotion;
+
+  // High contrast
+  var hcEl = document.getElementById('setting-high-contrast');
+  if (hcEl) hcEl.checked = settings.highContrast;
+
+  // Screen reader
+  var srEl = document.getElementById('setting-sr-announce');
+  if (srEl) srEl.checked = settings.screenReaderAnnounce;
+
+  // Simple language
+  var slEl = document.getElementById('setting-simple-lang');
+  if (slEl) slEl.checked = settings.simpleLanguage;
+
+  // Poll interval
+  var piEl = document.getElementById('setting-poll-interval');
+  if (piEl) piEl.value = String(settings.pollInterval);
+
+  // Origin tags
+  var otEl = document.getElementById('setting-origin-tags');
+  if (otEl) otEl.checked = settings.showOriginTags;
+
+  // Advanced mode — sync checkbox + segmented control
+  var advEl = document.getElementById('toggle-advanced');
+  if (advEl) advEl.checked = settings.advancedMode;
+  var panel = document.getElementById('settings-panel');
+  if (panel) {
+    if (settings.advancedMode) {
+      panel.classList.add('advanced');
+    } else {
+      panel.classList.remove('advanced');
+    }
+  }
+  var segSimple = document.getElementById('seg-simple');
+  var segAdvanced = document.getElementById('seg-advanced');
+  if (segSimple && segAdvanced) {
+    segSimple.classList.toggle('active', !settings.advancedMode);
+    segSimple.setAttribute('aria-checked', String(!settings.advancedMode));
+    segAdvanced.classList.toggle('active', settings.advancedMode);
+    segAdvanced.setAttribute('aria-checked', String(settings.advancedMode));
+  }
+
+  // Theme cards
+  syncThemeCards(settings.theme);
+}
+
+// --------------- Theme Card Sync ---------------
+
+function syncThemeCards(currentTheme) {
+  var cards = document.querySelectorAll('.theme-card[data-theme]');
+  cards.forEach(function(card) {
+    var cardTheme = card.getAttribute('data-theme');
+    var isActive = (cardTheme === currentTheme);
+    card.classList.toggle('active', isActive);
+    card.setAttribute('aria-checked', String(isActive));
+    card.setAttribute('tabindex', isActive ? '0' : '-1');
+  });
+}
+
+// --------------- Settings Panel Open / Close ---------------
+
+var _settingsTrigger = null; // element that opened the panel, for focus return
+
+function openSettings() {
+  var panel = document.getElementById('settings-panel');
+  var backdrop = document.getElementById('settings-backdrop');
+  if (!panel || !backdrop) return;
+
+  _settingsTrigger = document.activeElement;
+
+  panel.classList.add('open');
+  backdrop.classList.add('open');
+  document.body.classList.add('settings-open');
+
+  // Focus close button
+  var closeBtn = document.getElementById('settings-close');
+  if (closeBtn) closeBtn.focus();
+
+  // Add escape listener
+  document.addEventListener('keydown', _settingsKeyHandler);
+}
+
+function closeSettings() {
+  var panel = document.getElementById('settings-panel');
+  var backdrop = document.getElementById('settings-backdrop');
+  if (!panel || !backdrop) return;
+
+  panel.classList.remove('open');
+  backdrop.classList.remove('open');
+  document.body.classList.remove('settings-open');
+
+  document.removeEventListener('keydown', _settingsKeyHandler);
+
+  // Return focus
+  if (_settingsTrigger && typeof _settingsTrigger.focus === 'function') {
+    _settingsTrigger.focus();
+  }
+  _settingsTrigger = null;
+}
+
+function _settingsKeyHandler(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeSettings();
+    return;
+  }
+
+  // Focus trap
+  if (e.key === 'Tab') {
+    var panel = document.getElementById('settings-panel');
+    if (!panel) return;
+    var focusable = panel.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+}
+
+// --------------- Screen Reader Announcements ---------------
+
+function announceToSR(text) {
+  if (!settings.screenReaderAnnounce) return;
+  var liveRegion = dom.srLive;
+  if (!liveRegion) return;
+  liveRegion.textContent = text;
+  // Clear after a bit so repeated identical messages are re-announced
+  setTimeout(function() { liveRegion.textContent = ''; }, 1000);
+}
+
+function announceMessage(msg) {
+  if (!settings.screenReaderAnnounce) return;
+  var announcer = dom.ariaAnnouncer;
+  if (!announcer) return;
+  var sender = msg.sender_name || 'unknown';
+  var type = msg.type || 'message';
+  announcer.textContent = sender + ' sent a ' + type + ': ' + (msg.content || '').slice(0, 100);
+  // Clear after delay so repeated messages are re-announced
+  setTimeout(function() { announcer.textContent = ''; }, 2000);
+}
+
+// --------------- Settings Event Wiring ---------------
+
+function initSettings() {
+  loadSettings();
+
+  // Open / close
+  var gearBtn = document.getElementById('btn-settings');
+  if (gearBtn) gearBtn.addEventListener('click', openSettings);
+
+  var closeBtn = document.getElementById('settings-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeSettings);
+
+  var backdrop = document.getElementById('settings-backdrop');
+  if (backdrop) backdrop.addEventListener('click', closeSettings);
+
+  // Segmented control (Simple / Advanced)
+  var segSimple = document.getElementById('seg-simple');
+  var segAdvanced = document.getElementById('seg-advanced');
+  var advToggle = document.getElementById('toggle-advanced');
+
+  function setAdvancedMode(isAdvanced) {
+    if (advToggle) advToggle.checked = isAdvanced;
+    saveSetting('advancedMode', isAdvanced);
+    if (segSimple && segAdvanced) {
+      segSimple.classList.toggle('active', !isAdvanced);
+      segSimple.setAttribute('aria-checked', String(!isAdvanced));
+      segAdvanced.classList.toggle('active', isAdvanced);
+      segAdvanced.setAttribute('aria-checked', String(isAdvanced));
+    }
+  }
+
+  if (segSimple) {
+    segSimple.addEventListener('click', function() { setAdvancedMode(false); });
+  }
+  if (segAdvanced) {
+    segAdvanced.addEventListener('click', function() { setAdvancedMode(true); });
+  }
+  // Keep hidden checkbox change wired for backward compat
+  if (advToggle) {
+    advToggle.addEventListener('change', function() {
+      setAdvancedMode(this.checked);
+    });
+  }
+
+  // Theme dropdown
+  var themeEl = document.getElementById('setting-theme');
+  if (themeEl) {
+    themeEl.addEventListener('change', function() {
+      saveSetting('theme', this.value);
+      syncThemeCards(this.value);
+    });
+  }
+
+  // Theme preview cards
+  var themeCards = document.querySelectorAll('.theme-card[data-theme]');
+  themeCards.forEach(function(card) {
+    card.addEventListener('click', function() {
+      var theme = this.getAttribute('data-theme');
+      saveSetting('theme', theme);
+      if (themeEl) themeEl.value = theme;
+      syncThemeCards(theme);
+    });
+  });
+
+  // Font dropdown
+  var fontEl = document.getElementById('setting-font');
+  if (fontEl) {
+    fontEl.addEventListener('change', function() {
+      saveSetting('font', this.value);
+    });
+  }
+
+  // Reset to defaults button
+  var resetBtn = document.getElementById('settings-reset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function() {
+      for (var key in SETTINGS_DEFAULTS) {
+        settings[key] = SETTINGS_DEFAULTS[key];
+      }
+      localStorage.setItem('relay_settings', JSON.stringify(settings));
+      applyAllSettings();
+      syncSettingsUI();
+      syncThemeCards(settings.theme);
+      // Reset segmented control to match
+      setAdvancedMode(settings.advancedMode);
+    });
+  }
+
+  // Font size slider
+  var fontSizeEl = document.getElementById('setting-font-size');
+  if (fontSizeEl) {
+    fontSizeEl.addEventListener('input', function() {
+      var step = FONT_SIZE_STEPS[parseInt(this.value, 10)] || 'default';
+      saveSetting('fontSize', step);
+      var label = document.getElementById('font-size-label');
+      if (label) label.textContent = FONT_SIZE_LABELS[step] || 'Default';
+    });
+  }
+
+  // Mesh toggle
+  var meshEl = document.getElementById('setting-mesh');
+  if (meshEl) {
+    meshEl.addEventListener('change', function() {
+      saveSetting('meshEnabled', this.checked);
+    });
+  }
+
+  // Reduced motion
+  var rmEl = document.getElementById('setting-reduced-motion');
+  if (rmEl) {
+    rmEl.addEventListener('change', function() {
+      saveSetting('reducedMotion', this.checked);
+    });
+  }
+
+  // High contrast
+  var hcEl = document.getElementById('setting-high-contrast');
+  if (hcEl) {
+    hcEl.addEventListener('change', function() {
+      saveSetting('highContrast', this.checked);
+    });
+  }
+
+  // Screen reader
+  var srEl = document.getElementById('setting-sr-announce');
+  if (srEl) {
+    srEl.addEventListener('change', function() {
+      saveSetting('screenReaderAnnounce', this.checked);
+    });
+  }
+
+  // Simple language
+  var slEl = document.getElementById('setting-simple-lang');
+  if (slEl) {
+    slEl.addEventListener('change', function() {
+      saveSetting('simpleLanguage', this.checked);
+    });
+  }
+
+  // Poll interval
+  var piEl = document.getElementById('setting-poll-interval');
+  if (piEl) {
+    piEl.addEventListener('change', function() {
+      saveSetting('pollInterval', parseInt(this.value, 10));
+    });
+  }
+
+  // Origin tags
+  var otEl = document.getElementById('setting-origin-tags');
+  if (otEl) {
+    otEl.addEventListener('change', function() {
+      saveSetting('showOriginTags', this.checked);
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -5,45 +5,81 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>Protocol Chronicle — Claude Relay</title>
+  <!-- Preconnect to Google Fonts for faster font loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Google Fonts: non-blocking via media="print" + onload swap -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400;1,600&family=Instrument+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400;1,600&family=Instrument+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap"></noscript>
   <link rel="stylesheet" href="/style.css">
-  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <!-- Phosphor Icons: inline only the 9 icons used (gear-six, sign-out, key, cloud, lightning, vault, file-text, article, x) -->
+  <style>
+    @font-face {
+      font-family: "Phosphor";
+      src: url("https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/Phosphor.woff2") format("woff2");
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
+    .ph { font-family: "Phosphor" !important; font-style: normal; font-weight: normal; font-variant: normal; text-transform: none; line-height: 1; -webkit-font-smoothing: antialiased; }
+    .ph-gear-six::before { content: "\e2a0"; }
+    .ph-sign-out::before { content: "\e3fc"; }
+    .ph-key::before { content: "\e2fc"; }
+    .ph-cloud::before { content: "\e1a2"; }
+    .ph-lightning::before { content: "\e30c"; }
+    .ph-vault::before { content: "\e496"; }
+    .ph-file-text::before { content: "\e230"; }
+    .ph-article::before { content: "\e0fa"; }
+    .ph-x::before { content: "\e4c8"; }
+  </style>
 </head>
 <body>
 
+  <!-- Skip to content link for keyboard/screen reader users -->
+  <a href="#chronicle" class="skip-link">Skip to messages</a>
+
+  <!-- Screen reader announcer for live updates -->
+  <div id="aria-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
   <!-- Mesh field canvas background -->
-  <canvas id="mesh-canvas"></canvas>
+  <canvas id="mesh-canvas" aria-hidden="true"></canvas>
 
   <!-- ============ SETUP SCREEN ============ -->
-  <div id="setup" class="setup-screen">
+  <div id="setup" class="setup-screen" role="region" aria-label="Session setup">
     <div class="setup-card">
-      <div class="setup-brand">
+      <div class="setup-brand" aria-hidden="true">
         <div class="brand-diamond"></div>
         <h1>Protocol Chronicle</h1>
         <p>Inter-Claude Knowledge Relay</p>
       </div>
 
-      <div class="setup-section">
-        <h2>Create Session</h2>
+      <div class="setup-section" role="group" aria-labelledby="create-heading">
+        <h2 id="create-heading">Create Session</h2>
+        <label for="create-name" class="sr-only">Session name</label>
         <input type="text" id="create-name" placeholder="Session name" value="Director Session">
-        <select id="create-ttl">
+        <label for="create-ttl" class="sr-only">Session duration</label>
+        <select id="create-ttl" aria-label="Session duration">
           <option value="30">30 min</option>
           <option value="60" selected>1 hour</option>
           <option value="480">8 hours</option>
           <option value="1440">24 hours</option>
         </select>
         <button id="btn-create" class="btn-chronicle">Inscribe New Session</button>
-        <div class="setup-error" id="create-error"></div>
+        <div class="setup-error" id="create-error" role="alert" aria-live="assertive"></div>
       </div>
 
-      <div class="setup-divider"><span>or join existing folio</span></div>
+      <div class="setup-divider" role="separator"><span>or join existing folio</span></div>
 
-      <div class="setup-section">
-        <h2>Join Session</h2>
+      <div class="setup-section" role="group" aria-labelledby="join-heading">
+        <h2 id="join-heading">Join Session</h2>
+        <label for="join-id" class="sr-only">Session ID</label>
         <input type="text" id="join-id" placeholder="Session ID">
+        <label for="join-invite" class="sr-only">Invite token</label>
         <input type="text" id="join-invite" placeholder="Invite token">
+        <label for="join-name" class="sr-only">Your name</label>
         <input type="text" id="join-name" placeholder="Your name" value="worker">
         <button id="btn-join" class="btn-ghost-chronicle">Enter Session</button>
-        <div class="setup-error" id="join-error"></div>
+        <div class="setup-error" id="join-error" role="alert" aria-live="assertive"></div>
       </div>
     </div>
   </div>
@@ -52,49 +88,49 @@
   <div id="main" class="app-shell" style="display:none">
 
     <!-- Masthead -->
-    <header class="masthead">
-      <div class="mast-left">
-        <div class="brand-mark"></div>
+    <header class="masthead" role="banner">
+      <nav class="mast-left" aria-label="Session">
+        <div class="brand-mark" aria-hidden="true"></div>
         <span class="mast-title" id="session-name">Protocol Chronicle</span>
-      </div>
+      </nav>
 
-      <div class="mast-center" id="bridge-status">
+      <div class="mast-center" id="bridge-status" role="status" aria-label="Protocol bridge status">
         <span class="bridge-label">HTTP</span>
-        <span class="bridge-dot active" id="dot-http"></span>
-        <span class="bridge-arrow">&#10231;</span>
+        <span class="bridge-dot active" id="dot-http" aria-label="HTTP: active"></span>
+        <span class="bridge-arrow" aria-hidden="true">&#10231;</span>
         <span class="bridge-label">Core</span>
-        <span class="bridge-arrow">&#10231;</span>
+        <span class="bridge-arrow" aria-hidden="true">&#10231;</span>
         <span class="bridge-label">Nostr</span>
-        <span class="bridge-dot inactive" id="dot-nostr"></span>
+        <span class="bridge-dot inactive" id="dot-nostr" aria-label="Nostr: inactive"></span>
         <span class="bridge-label">WS</span>
-        <span class="bridge-arrow">&#8597;</span>
+        <span class="bridge-arrow" aria-hidden="true">&#8597;</span>
         <span class="bridge-label">Solid</span>
-        <span class="bridge-dot inactive" id="dot-solid"></span>
+        <span class="bridge-dot inactive" id="dot-solid" aria-label="Solid: inactive"></span>
       </div>
 
       <div class="mast-right">
-        <div class="connection-pill" id="connection-pill">
-          <span class="dot"></span>
+        <div class="connection-pill" id="connection-pill" role="status" aria-label="Connection status">
+          <span class="dot" aria-hidden="true"></span>
           <span id="connection-label">Connected</span>
         </div>
-        <span class="folio-counter" id="folio-counter">Folio i</span>
+        <span class="folio-counter" id="folio-counter" aria-label="Message count">Folio i</span>
         <div class="mast-actions">
-          <button class="mast-btn" id="btn-theme" title="Switch theme: Dark / OLED / Auto">
-            <i class="ph ph-moon" id="theme-icon"></i>
+          <button class="mast-btn" id="btn-settings" title="Settings" aria-label="Open settings" aria-haspopup="dialog">
+            <i class="ph ph-gear-six" aria-hidden="true"></i>
           </button>
-          <button class="mast-btn danger" id="btn-end" title="End session">
-            <i class="ph ph-sign-out"></i>
+          <button class="mast-btn danger" id="btn-end" title="End session" aria-label="End session">
+            <i class="ph ph-sign-out" aria-hidden="true"></i>
           </button>
         </div>
       </div>
     </header>
 
     <!-- Invite bar (shown after create) -->
-    <div class="invite-bar" id="invite-bar" style="display:none">
-      <i class="ph ph-key" style="color:var(--amber);font-size:14px"></i>
+    <div class="invite-bar" id="invite-bar" style="display:none" role="region" aria-label="Invite token">
+      <i class="ph ph-key" style="color:var(--amber);font-size:14px" aria-hidden="true"></i>
       <span>Invite token</span>
       <code id="invite-token"></code>
-      <button class="copy-btn" id="btn-copy">Copy</button>
+      <button class="copy-btn" id="btn-copy" aria-label="Copy invite token">Copy</button>
       <span style="margin-left:auto;color:var(--text-dim)">Share with worker to join</span>
     </div>
 
@@ -102,54 +138,45 @@
     <div class="app-content">
 
       <!-- Left Rail -->
-      <aside class="left-rail" id="left-rail">
+      <aside class="left-rail" id="left-rail" aria-label="Session information">
 
-        <!-- Protocol Status -->
+        <!-- Group 1: Protocol Status -->
         <div class="rail-section">
           <h3>Protocol Status</h3>
 
-          <div class="protocol-card">
-            <div class="protocol-icon http"><i class="ph ph-cloud"></i></div>
+          <div class="protocol-card" role="group" aria-label="HTTP REST protocol">
+            <div class="protocol-icon http" aria-hidden="true"><i class="ph ph-cloud"></i></div>
             <div class="protocol-info">
               <div class="protocol-name">HTTP REST</div>
               <div class="protocol-stat" id="http-stat">Active</div>
             </div>
-            <div class="protocol-dot live" id="http-dot"></div>
+            <div class="protocol-dot live" id="http-dot" role="img" aria-label="HTTP: active"></div>
           </div>
 
-          <div class="protocol-card">
-            <div class="protocol-icon nostr"><i class="ph ph-lightning"></i></div>
+          <div class="protocol-card" role="group" aria-label="Nostr WebSocket protocol">
+            <div class="protocol-icon nostr" aria-hidden="true"><i class="ph ph-lightning"></i></div>
             <div class="protocol-info">
               <div class="protocol-name">Nostr WS</div>
               <div class="protocol-stat" id="nostr-stat">--</div>
             </div>
-            <div class="protocol-dot off" id="nostr-dot"></div>
+            <div class="protocol-dot off" id="nostr-dot" role="img" aria-label="Nostr: inactive"></div>
           </div>
 
-          <div class="protocol-card">
-            <div class="protocol-icon solid"><i class="ph ph-vault"></i></div>
+          <div class="protocol-card" role="group" aria-label="Solid Pods protocol">
+            <div class="protocol-icon solid" aria-hidden="true"><i class="ph ph-vault"></i></div>
             <div class="protocol-info">
               <div class="protocol-name">Solid Pods</div>
               <div class="protocol-stat" id="solid-stat">--</div>
             </div>
-            <div class="protocol-dot off" id="solid-dot"></div>
+            <div class="protocol-dot off" id="solid-dot" role="img" aria-label="Solid: inactive"></div>
           </div>
         </div>
 
-        <!-- Defense Scan -->
-        <div class="rail-section">
-          <h3>Defense Scan</h3>
-          <ul class="defense-list" id="defense-list">
-            <li><span class="defense-check pass">&#10003;</span> Bearer auth gating</li>
-            <li><span class="defense-check pass">&#10003;</span> Content scanner</li>
-            <li><span class="defense-check pass">&#10003;</span> Rate limiter</li>
-            <li><span class="defense-check pass">&#10003;</span> CORS restriction</li>
-            <li><span class="defense-check pass">&#10003;</span> XSS escape</li>
-            <li><span class="defense-check pass">&#10003;</span> TTL sweep</li>
-          </ul>
+        <div class="rail-divider" aria-hidden="true">
+          <span class="rail-divider-ornament"></span>
         </div>
 
-        <!-- Session Info -->
+        <!-- Group 2: Session (merged Session + Participants + Identity) -->
         <div class="rail-section">
           <h3>Session</h3>
           <div class="session-meta">
@@ -170,17 +197,11 @@
               <span id="info-uptime">&mdash;</span>
             </div>
           </div>
-        </div>
 
-        <!-- Participants -->
-        <div class="rail-section">
-          <h3>Participants</h3>
+          <div class="rail-sub-label">Participants</div>
           <ul class="participant-list" id="participant-list"></ul>
-        </div>
 
-        <!-- Identity -->
-        <div class="rail-section">
-          <h3>Identity</h3>
+          <div class="rail-sub-label">Identity</div>
           <div class="identity-row">
             <span class="identity-label">npub</span>
             <span class="identity-value" id="id-npub">&mdash;</span>
@@ -191,46 +212,242 @@
           </div>
         </div>
 
-        <!-- Export -->
+        <div class="rail-divider" aria-hidden="true">
+          <span class="rail-divider-ornament"></span>
+        </div>
+
+        <!-- Group 3: Defense & Tools (merged Defense Scan + Export) -->
         <div class="rail-section">
-          <h3>Export</h3>
-          <button class="btn-ghost-chronicle" id="btn-export-json" style="margin-bottom:6px;font-size:10px;padding:8px">
-            <i class="ph ph-file-text" style="margin-right:6px"></i> JSON
+          <h3>Defense &amp; Tools</h3>
+
+          <details class="rail-details" open>
+            <summary class="rail-section-title" id="defense-heading">Defense Scan</summary>
+            <ul class="defense-list" id="defense-list" aria-labelledby="defense-heading">
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Bearer auth gating <span class="sr-only">: passed</span></li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Content scanner <span class="sr-only">: passed</span></li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Rate limiter <span class="sr-only">: passed</span></li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> CORS restriction <span class="sr-only">: passed</span></li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> XSS escape <span class="sr-only">: passed</span></li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> TTL sweep <span class="sr-only">: passed</span></li>
+            </ul>
+          </details>
+
+          <div class="rail-sub-label">Export</div>
+          <button class="btn-ghost-chronicle" id="btn-export-json" style="margin-bottom:6px;font-size:10px;padding:8px" aria-label="Export session as JSON">
+            <i class="ph ph-file-text" style="margin-right:6px" aria-hidden="true"></i> JSON
           </button>
-          <button class="btn-ghost-chronicle" id="btn-export-md" style="font-size:10px;padding:8px">
-            <i class="ph ph-article" style="margin-right:6px"></i> Markdown
+          <button class="btn-ghost-chronicle" id="btn-export-md" style="font-size:10px;padding:8px" aria-label="Export session as Markdown">
+            <i class="ph ph-article" style="margin-right:6px" aria-hidden="true"></i> Markdown
           </button>
         </div>
       </aside>
 
       <!-- Chronicle Feed -->
-      <div class="chronicle-area">
-        <div class="chronicle-feed" id="chronicle">
+      <main class="chronicle-area" role="main">
+        <div class="chronicle-feed" id="chronicle" aria-label="Message chronicle" role="log" aria-relevant="additions">
           <div class="chronicle-empty" id="empty-state">
-            <div class="empty-diamond"></div>
+            <div class="empty-diamond" aria-hidden="true"></div>
             <div class="empty-title">The chronicle awaits</div>
             <div class="empty-sub">Send the first message to begin</div>
           </div>
         </div>
 
         <!-- Composer -->
-        <div class="composer">
-          <div class="composer-tabs" id="composer-tabs">
-            <button class="composer-tab" data-type="Arch">Arch</button>
-            <button class="composer-tab active" data-type="Question">Question</button>
-            <button class="composer-tab" data-type="Answer">Answer</button>
-            <button class="composer-tab" data-type="Insight">Insight</button>
-            <button class="composer-tab" data-type="Event">Event</button>
+        <div class="composer" role="form" aria-label="Message composer">
+          <div class="composer-tabs" id="composer-tabs" role="tablist" aria-label="Message type">
+            <button class="composer-tab" data-type="Arch" role="tab" aria-selected="false" tabindex="-1">Arch</button>
+            <button class="composer-tab active" data-type="Question" role="tab" aria-selected="true" tabindex="0">Question</button>
+            <button class="composer-tab" data-type="Answer" role="tab" aria-selected="false" tabindex="-1">Answer</button>
+            <button class="composer-tab" data-type="Insight" role="tab" aria-selected="false" tabindex="-1">Insight</button>
+            <button class="composer-tab" data-type="Event" role="tab" aria-selected="false" tabindex="-1">Event</button>
           </div>
           <div class="composer-row">
-            <textarea class="composer-input" id="msg-input" placeholder="Inscribe a message... (Cmd+Enter to send)" rows="1"></textarea>
-            <button class="composer-send" id="btn-send">Send</button>
+            <label for="msg-input" class="sr-only">Message content</label>
+            <textarea class="composer-input" id="msg-input" placeholder="Inscribe a message... (Cmd+Enter to send)" rows="1" aria-label="Message content"></textarea>
+            <button class="composer-send" id="btn-send" aria-label="Send message">Send</button>
+          </div>
+        </div>
+      </main>
+
+    </div><!-- /app-content -->
+  </div><!-- /main -->
+
+  <!-- ============ SETTINGS PANEL ============ -->
+  <div class="settings-backdrop" id="settings-backdrop"></div>
+  <aside class="settings-panel" id="settings-panel" role="dialog" aria-modal="true" aria-label="Settings">
+
+    <div class="settings-header">
+      <h2>Settings</h2>
+      <button class="settings-close" id="settings-close" aria-label="Close settings">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+
+    <!-- Simple / Advanced segmented control -->
+    <div class="settings-segmented" role="radiogroup" aria-label="Settings mode">
+      <div class="settings-segmented-track">
+        <button class="settings-segmented-btn active" id="seg-simple" role="radio" aria-checked="true" data-mode="simple">Simple</button>
+        <button class="settings-segmented-btn" id="seg-advanced" role="radio" aria-checked="false" data-mode="advanced">Advanced</button>
+      </div>
+    </div>
+    <!-- Hidden checkbox kept for JS compatibility -->
+    <input type="checkbox" id="toggle-advanced" class="sr-only" aria-hidden="true">
+
+    <div class="settings-body">
+
+      <!-- Appearance -->
+      <div class="settings-section">
+        <h3>Appearance</h3>
+
+        <div class="setting-row">
+          <label for="setting-theme">Theme</label>
+          <select id="setting-theme">
+            <option value="auto">Auto (System)</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="oled">OLED Black</option>
+          </select>
+        </div>
+
+        <!-- Theme preview cards -->
+        <div class="theme-preview-row" role="radiogroup" aria-label="Theme quick select">
+          <button class="theme-card theme-card--dark active" data-theme="dark" role="radio" aria-checked="false" aria-label="Dark theme" tabindex="0">
+            <span class="theme-card-label">Dark</span>
+          </button>
+          <button class="theme-card theme-card--light" data-theme="light" role="radio" aria-checked="false" aria-label="Light theme" tabindex="-1">
+            <span class="theme-card-label">Light</span>
+          </button>
+          <button class="theme-card theme-card--oled" data-theme="oled" role="radio" aria-checked="false" aria-label="OLED Black theme" tabindex="-1">
+            <span class="theme-card-label">OLED</span>
+          </button>
+        </div>
+
+        <div class="setting-row">
+          <label for="setting-font">Font</label>
+          <select id="setting-font">
+            <option value="default">Default</option>
+            <option value="dyslexia">Dyslexia-friendly</option>
+            <option value="mono">Monospace</option>
+            <option value="system">System</option>
+          </select>
+        </div>
+
+        <!-- Font preview -->
+        <div class="font-preview" id="font-preview">
+          <div class="preview-serif">Protocol Chronicle</div>
+          <div class="preview-sans">The quick brown fox jumps over the lazy dog.</div>
+          <div class="preview-mono">const relay = new Session();</div>
+        </div>
+
+        <div class="settings-slider-group">
+          <label for="setting-font-size">Font Size</label>
+          <div class="settings-slider-row">
+            <input type="range" id="setting-font-size" min="0" max="3" step="1" value="1" aria-label="Font size">
+            <span class="settings-slider-value" id="font-size-label">Default</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <label for="setting-mesh">Mesh Background</label>
+            <span class="setting-desc">Animated particle network behind content</span>
+          </div>
+          <div class="toggle-switch">
+            <input type="checkbox" id="setting-mesh" checked>
+            <span class="toggle-track"></span>
           </div>
         </div>
       </div>
 
-    </div><!-- /app-content -->
-  </div><!-- /main -->
+      <!-- Accessibility (advanced) -->
+      <div class="settings-section advanced-only">
+        <h3>Accessibility</h3>
+
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <label for="setting-reduced-motion">Reduced Motion</label>
+            <span class="setting-desc">Disable all animations and transitions</span>
+          </div>
+          <div class="toggle-switch teal">
+            <input type="checkbox" id="setting-reduced-motion">
+            <span class="toggle-track"></span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <label for="setting-high-contrast">High Contrast</label>
+            <span class="setting-desc">Increase text and border contrast</span>
+          </div>
+          <div class="toggle-switch teal">
+            <input type="checkbox" id="setting-high-contrast">
+            <span class="toggle-track"></span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <label for="setting-sr-announce">Screen Reader Announcements</label>
+            <span class="setting-desc">Announce new messages via live regions</span>
+          </div>
+          <div class="toggle-switch teal">
+            <input type="checkbox" id="setting-sr-announce">
+            <span class="toggle-track"></span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <label for="setting-simple-lang">Simple Language</label>
+            <span class="setting-desc">Use plain labels instead of archival language</span>
+          </div>
+          <div class="toggle-switch teal">
+            <input type="checkbox" id="setting-simple-lang">
+            <span class="toggle-track"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Protocol (advanced) -->
+      <div class="settings-section advanced-only">
+        <h3>Protocol</h3>
+
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <label for="setting-poll-interval">Auto-poll Interval</label>
+            <span class="setting-desc">How often to check for new messages</span>
+          </div>
+          <select id="setting-poll-interval">
+            <option value="2000">2 seconds</option>
+            <option value="5000">5 seconds</option>
+            <option value="10000">10 seconds</option>
+            <option value="30000">30 seconds</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-label-group">
+            <label for="setting-origin-tags">Show Origin Tags</label>
+            <span class="setting-desc">Display protocol source on each message</span>
+          </div>
+          <div class="toggle-switch">
+            <input type="checkbox" id="setting-origin-tags" checked>
+            <span class="toggle-track"></span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /settings-body -->
+
+    <!-- Settings footer -->
+    <div class="settings-footer">
+      <button class="settings-reset-btn" id="settings-reset" aria-label="Reset all settings to defaults">Reset to Defaults</button>
+      <span class="settings-version">Protocol Chronicle v0.3</span>
+    </div>
+  </aside>
+
+  <!-- Screen reader live region -->
+  <div class="sr-live-region" id="sr-live" aria-live="polite" aria-atomic="true"></div>
 
   <script src="/app.js"></script>
 </body>
