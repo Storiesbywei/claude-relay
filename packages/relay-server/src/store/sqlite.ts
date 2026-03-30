@@ -346,6 +346,7 @@ export function createSession(
     createdAt: now,
     expiresAt,
     lastActivityAt: now,
+    nostrPubkeys: new Map(),
   };
 }
 
