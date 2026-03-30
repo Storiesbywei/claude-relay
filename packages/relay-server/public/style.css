@@ -26,6 +26,12 @@
   --mesh-alpha: 0.04;
   --mesh-dot-alpha: 0.1;
 
+  /* Rail / sidebar */
+  --rail-bg: rgba(13,20,36,0.5);
+  --rail-card-bg: rgba(6,9,18,0.4);
+  --rail-card-border: var(--glass-border);
+  --rail-section-border: var(--glass-border);
+
   /* Accent colors by message type */
   --amber: #E8A020;
   --violet: #8B5CF6;
@@ -67,6 +73,12 @@
     --mesh-alpha: 0.06;
     --mesh-dot-alpha: 0.08;
 
+    /* Rail / sidebar */
+    --rail-bg: rgba(235,230,219,0.6);       /* warm tinted glass */
+    --rail-card-bg: rgba(255,255,255,0.55);  /* white card on parchment */
+    --rail-card-border: rgba(0,0,0,0.06);
+    --rail-section-border: rgba(0,0,0,0.06);
+
     /* Accent colors — slightly muted for light backgrounds */
     --amber: #c48a10;
     --violet: #7c3aed;
@@ -79,9 +91,13 @@
 
 /* --- OLED black mode (manual via data-theme="oled") --- */
 :root[data-theme="oled"] {
-  --ink: #000000;              /* true black for OLED power savings */
-  --vellum: #0a0a0a;           /* near-black, just enough to distinguish */
+  --ink: #000000;
+  --vellum: #0a0a0a;
   --glass: rgba(0,0,0,0.88);
+  --rail-bg: rgba(0,0,0,0.6);
+  --rail-card-bg: rgba(255,255,255,0.02);
+  --rail-card-border: rgba(255,255,255,0.04);
+  --rail-section-border: rgba(255,255,255,0.04);
   --glass-border: rgba(255,255,255,0.04);
   --glass-border-hover: rgba(255,255,255,0.09);
   --text-primary: #d4d4d8;    /* slightly dimmer than dark mode — easier on eyes */
@@ -113,6 +129,10 @@
   --mesh-color: 139,92,246;
   --mesh-alpha: 0.04;
   --mesh-dot-alpha: 0.1;
+  --rail-bg: rgba(13,20,36,0.5);
+  --rail-card-bg: rgba(6,9,18,0.4);
+  --rail-card-border: var(--glass-border);
+  --rail-section-border: var(--glass-border);
 }
 
 html, body {
@@ -501,7 +521,7 @@ a:hover { text-decoration: underline; }
   padding: 16px;
   border-right: 1px solid var(--glass-border);
   overflow-y: auto;
-  background: rgba(13,20,36,0.5);
+  background: var(--rail-bg);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -516,7 +536,7 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.14em;
   margin-bottom: 10px;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--rail-section-border);
 }
 
 /* Protocol status cards */
@@ -525,8 +545,8 @@ a:hover { text-decoration: underline; }
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: rgba(6,9,18,0.4);
-  border: 1px solid var(--glass-border);
+  background: var(--rail-card-bg);
+  border: 1px solid var(--rail-card-border);
   border-radius: var(--radius-sm);
   margin-bottom: 8px;
   transition: border-color 0.2s;
@@ -543,9 +563,9 @@ a:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 
-.protocol-icon.http { background: rgba(14,210,184,0.1); color: var(--teal); }
-.protocol-icon.nostr { background: rgba(139,92,246,0.1); color: var(--violet); }
-.protocol-icon.solid { background: rgba(232,160,32,0.1); color: var(--amber); }
+.protocol-icon.http { background: rgba(14,210,184,0.12); color: var(--teal); }
+.protocol-icon.nostr { background: rgba(139,92,246,0.12); color: var(--violet); }
+.protocol-icon.solid { background: rgba(232,160,32,0.12); color: var(--amber); }
 
 .protocol-info { flex: 1; min-width: 0; }
 .protocol-name {
