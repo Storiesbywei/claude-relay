@@ -1769,3 +1769,122 @@ html[data-reduced-motion] .settings-backdrop {
 .settings-reset-btn:hover { border-color: rgba(255,107,107,0.3); color: #ff6b6b; background: rgba(255,107,107,0.06); }
 .settings-reset-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .settings-version { font-family: var(--mono); font-size: 9px; color: var(--text-dim); letter-spacing: 0.04em; }
+
+/* ===== Mode Selector (Setup Screen) ===== */
+.mode-selector {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.mode-btn {
+  flex: 1;
+  padding: 16px 12px;
+  background: var(--input-bg);
+  border: 2px solid var(--glass-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+.mode-btn:hover {
+  border-color: var(--glass-border-hover);
+}
+.mode-btn.active {
+  border-color: var(--amber);
+  background: rgba(232, 160, 32, 0.06);
+}
+.mode-btn .mode-icon {
+  display: block;
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+.mode-btn .mode-name {
+  display: block;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.mode-btn .mode-desc {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* ===== Signal Banner ===== */
+.signal-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(14, 210, 184, 0.08);
+  border-bottom: 1px solid rgba(14, 210, 184, 0.15);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--teal);
+  letter-spacing: 0.04em;
+}
+.signal-shield {
+  font-size: 14px;
+}
+.signal-fingerprint {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+/* ===== Signal Mode Overrides ===== */
+/* When data-mode="signal" is set on <html>, transform the UI into a clean messenger */
+
+html[data-mode="signal"] .left-rail { display: none; }
+html[data-mode="signal"] .mast-center { display: none; }
+html[data-mode="signal"] .composer-tabs { display: none; }
+html[data-mode="signal"] .folio-counter { display: none; }
+
+/* Hide type pill, footer (origin tag, hash), and time column in signal mode */
+html[data-mode="signal"] .ec-pill { display: none; }
+html[data-mode="signal"] .ec-footer { display: none; }
+html[data-mode="signal"] .entry-time-col { display: none; }
+
+/* Hide export buttons in signal mode (minimize data leakage) */
+html[data-mode="signal"] #btn-export-json { display: none; }
+html[data-mode="signal"] #btn-export-md { display: none; }
+
+/* Chat bubble layout in signal mode */
+html[data-mode="signal"] .chronicle-area {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+html[data-mode="signal"] .folio-entry {
+  display: flex;
+  justify-content: flex-start;
+  padding: 4px 16px;
+}
+
+html[data-mode="signal"] .entry-card {
+  border-left: none;
+  border-radius: 18px;
+  max-width: 75%;
+  padding: 10px 16px;
+}
+
+/* Self-message alignment: right-align own messages */
+html[data-mode="signal"] .folio-entry.self-message {
+  justify-content: flex-end;
+}
+
+html[data-mode="signal"] .folio-entry.self-message .entry-card {
+  background: rgba(232, 160, 32, 0.12);
+  border: 1px solid rgba(232, 160, 32, 0.2);
+}
+
+/* Signal mode brand subtitle override */
+html[data-mode="signal"] .mast-title {
+  font-size: 13px;
+}

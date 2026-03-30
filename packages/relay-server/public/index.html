@@ -55,6 +55,18 @@
 
       <div class="setup-section" role="group" aria-labelledby="create-heading">
         <h2 id="create-heading">Create Session</h2>
+        <div class="mode-selector" id="mode-selector">
+          <button class="mode-btn active" data-mode="relay" id="mode-relay" type="button">
+            <span class="mode-icon">&#9671;</span>
+            <span class="mode-name">Relay</span>
+            <span class="mode-desc">Agent collaboration</span>
+          </button>
+          <button class="mode-btn" data-mode="signal" id="mode-signal" type="button">
+            <span class="mode-icon">&#9672;</span>
+            <span class="mode-name">Signal</span>
+            <span class="mode-desc">Encrypted messenger</span>
+          </button>
+        </div>
         <label for="create-name" class="sr-only">Session name</label>
         <input type="text" id="create-name" placeholder="Session name" value="Director Session">
         <label for="create-ttl" class="sr-only">Session duration</label>
@@ -137,6 +149,13 @@
       <code id="invite-token"></code>
       <button class="copy-btn" id="btn-copy" aria-label="Copy invite token">Copy</button>
       <span style="margin-left:auto;color:var(--text-dim)">Share with worker to join</span>
+    </div>
+
+    <!-- Signal mode banner (shown in signal mode sessions) -->
+    <div class="signal-banner" id="signal-banner" style="display:none">
+      <span class="signal-shield">&#9672;</span>
+      <span>End-to-end encrypted</span>
+      <span class="signal-fingerprint" id="signal-fingerprint"></span>
     </div>
 
     <!-- Content -->

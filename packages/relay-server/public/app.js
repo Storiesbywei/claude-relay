@@ -4,7 +4,7 @@
 // --------------- State ---------------
 
 const state = {
-  session: null,   // { id, token, invite, name, role, expires_at }
+  session: null,   // { id, token, invite, name, role, expires_at, mode, participantName }
   messages: [],
   cursor: 0,
   pollTimer: null,
@@ -12,6 +12,7 @@ const state = {
   activeType: 'Question',
   folioCount: 0,
   userScrolled: false,
+  selectedMode: 'relay', // Mode selected on setup screen before session creation
 };
 
 // Type mapping: tab label -> API type + CSS classes
@@ -192,14 +193,29 @@ async function api(method, path, body) {
 async function createSession() {
   const name = document.getElementById('create-name').value.trim() || 'Untitled';
   const ttl = parseInt(document.getElementById('create-ttl').value, 10);
+  const mode = state.selectedMode || 'relay';
   const errEl = document.getElementById('create-error');
   errEl.style.display = 'none';
 
+  // Signal mode requires encryption — check if WebCrypto is available
+  if (mode === 'signal' && (!window.crypto || !window.crypto.subtle)) {
+    errEl.textContent = 'Signal mode requires WebCrypto (HTTPS or localhost)';
+    errEl.style.display = 'block';
+    return;
+  }
+
   try {
-    const data = await api('POST', '/sessions', { name: name, ttl_minutes: ttl });
+    const data = await api('POST', '/sessions', { name: name, ttl_minutes: ttl, mode: mode });
 
     // Generate E2E encryption secret and derive session key
     var secretB64 = await relayCrypto.initForCreator(data.session_id);
+
+    // Signal mode: verify encryption initialized successfully
+    if (mode === 'signal' && !relayCrypto.enabled) {
+      errEl.textContent = 'Signal mode requires encryption — key generation failed';
+      errEl.style.display = 'block';
+      return;
+    }
 
     startSession({
       id: data.session_id,
@@ -208,6 +224,8 @@ async function createSession() {
       name: name,
       role: 'creator',
       expires_at: data.expires_at,
+      mode: data.mode || mode,
+      participantName: 'creator',
       _cryptoSecret: secretB64, // Passed to startSession for URL fragment
     });
   } catch (e) {
@@ -247,6 +265,8 @@ async function joinSession() {
       name: data.session.name,
       role: 'participant',
       expires_at: data.session.expires_at,
+      mode: data.session.mode || 'relay',
+      participantName: name,
     });
   } catch (e) {
     errEl.textContent = 'Failed: ' + e.message;
@@ -265,8 +285,17 @@ function startSession(sess) {
   var sessToStore = {
     id: sess.id, token: sess.token, invite: sess.invite,
     name: sess.name, role: sess.role, expires_at: sess.expires_at,
+    mode: sess.mode || 'relay', participantName: sess.participantName,
   };
   localStorage.setItem('relay_session', JSON.stringify(sessToStore));
+
+  // Apply signal mode to the document
+  var isSignal = sess.mode === 'signal';
+  if (isSignal) {
+    document.documentElement.setAttribute('data-mode', 'signal');
+  } else {
+    document.documentElement.removeAttribute('data-mode');
+  }
 
   // Inject URL params for sharing + encryption key in fragment
   // The URL fragment (#key=...) is NEVER sent to the server by browsers.
@@ -274,6 +303,9 @@ function startSession(sess) {
   url.searchParams.set('sid', sess.id);
   url.searchParams.set('token', sess.token);
   url.searchParams.set('name', sess.name);
+  if (sess.mode === 'signal') {
+    url.searchParams.set('mode', 'signal');
+  }
   if (sess._cryptoSecret) {
     url.hash = 'key=' + sess._cryptoSecret;
   } else if (relayCrypto.enabled) {
@@ -284,12 +316,26 @@ function startSession(sess) {
   // Update encryption UI indicator
   updateEncryptionUI();
 
+  // Signal mode: show banner, update brand subtitle
+  var signalBanner = document.getElementById('signal-banner');
+  if (isSignal) {
+    if (signalBanner) {
+      signalBanner.style.display = 'flex';
+      var sfp = document.getElementById('signal-fingerprint');
+      if (sfp && relayCrypto.enabled) {
+        sfp.textContent = relayCrypto.getFingerprint() || '';
+      }
+    }
+  } else {
+    if (signalBanner) signalBanner.style.display = 'none';
+  }
+
   // Switch screens
   dom.setup.style.display = 'none';
   dom.main.style.display = 'flex';
 
   // Populate UI
-  dom.sessionName.textContent = sess.name;
+  dom.sessionName.textContent = isSignal ? (sess.name + ' (Signal)') : sess.name;
   dom.infoId.textContent = sess.id.slice(0, 8) + '...';
   dom.infoId.title = sess.id;
   dom.infoExpires.textContent = new Date(sess.expires_at).toLocaleTimeString();
@@ -347,6 +393,11 @@ function endSession() {
   // Clear encryption state (key lives in memory only)
   relayCrypto.clear();
   updateEncryptionUI();
+
+  // Clear signal mode
+  document.documentElement.removeAttribute('data-mode');
+  var signalBanner = document.getElementById('signal-banner');
+  if (signalBanner) signalBanner.style.display = 'none';
 
   // Clear URL params AND fragment (which contains the encryption key)
   history.replaceState(null, '', location.pathname);
@@ -520,6 +571,17 @@ async function refreshStatus() {
   if (!state.session) return;
   try {
     const data = await api('GET', '/sessions/' + state.session.id);
+
+    // Sync mode from server (in case joiner didn't have it)
+    if (data.mode && data.mode !== state.session.mode) {
+      state.session.mode = data.mode;
+      if (data.mode === 'signal') {
+        document.documentElement.setAttribute('data-mode', 'signal');
+        var signalBanner = document.getElementById('signal-banner');
+        if (signalBanner) signalBanner.style.display = 'flex';
+      }
+    }
+
     var list = dom.participantList;
     list.innerHTML = '';
     var participants = data.participants || [];
@@ -595,6 +657,14 @@ function renderMessage(msg) {
   // Build folio entry
   var entry = document.createElement('div');
   entry.className = 'folio-entry new ' + typeInfo.ec;
+
+  // Signal mode: detect self-messages for chat bubble alignment
+  if (state.session && state.session.mode === 'signal') {
+    var currentName = state.session.participantName || state.session.role || '';
+    if (senderName === currentName || (state.session.role === 'creator' && senderName === 'creator')) {
+      entry.className += ' self-message';
+    }
+  }
 
   // Content processing
   var escapedContent = escapeHtml(msg.content || '');
@@ -677,20 +747,39 @@ function autoScroll() {
 
 async function sendMessage() {
   if (!state.session) return;
-  var typeKey = state.activeType;
-  var typeInfo = TYPES[typeKey];
-  if (!typeInfo) return;
+  var isSignal = state.session.mode === 'signal';
 
   var input = dom.msgInput;
   var content = input.value.trim();
   if (!content) return;
 
+  // Signal mode: require encryption
+  if (isSignal && !relayCrypto.enabled) {
+    var errDiv = document.createElement('div');
+    errDiv.style.cssText = 'color:#ff6b6b;font-family:var(--mono);font-size:11px;padding:4px 0;';
+    errDiv.textContent = 'Cannot send: encryption key required in Signal mode';
+    input.parentNode.appendChild(errDiv);
+    setTimeout(function() { errDiv.remove(); }, 4000);
+    return;
+  }
+
+  // In signal mode, always use 'context' type (generic message); in relay mode, use selected tab
+  var apiType;
+  if (isSignal) {
+    apiType = 'context';
+  } else {
+    var typeKey = state.activeType;
+    var typeInfo = TYPES[typeKey];
+    if (!typeInfo) return;
+    apiType = typeInfo.api;
+  }
+
   try {
     // Scan-then-Seal: encrypt if E2E encryption is active
     var sealed = await relayCrypto.seal(content);
 
-    // Check client-side scan results (runs BEFORE encryption)
-    if (sealed.scanResult && sealed.scanResult.hasSensitive) {
+    // Check client-side scan results (runs BEFORE encryption) — skip in signal mode
+    if (!isSignal && sealed.scanResult && sealed.scanResult.hasSensitive) {
       var errDiv = document.createElement('div');
       errDiv.style.cssText = 'color:#ff6b6b;font-family:var(--mono);font-size:11px;padding:4px 0;';
       errDiv.textContent = 'Blocked: ' + sealed.scanResult.warnings.join('; ');
@@ -700,7 +789,7 @@ async function sendMessage() {
     }
 
     var payload = {
-      type: typeInfo.api,
+      type: apiType,
       title: '',
       content: sealed.content,
     };
@@ -947,6 +1036,7 @@ function init() {
 
     // Initialize encryption if key is present
     var sessionId = params.get('sid');
+    var urlMode = params.get('mode') || 'relay';
     if (cryptoSecret) {
       relayCrypto.initForJoiner(cryptoSecret, sessionId).then(function() {
         startSession({
@@ -956,9 +1046,16 @@ function init() {
           name: params.get('name') || 'Session',
           role: 'participant',
           expires_at: null,
+          mode: urlMode,
+          participantName: 'participant',
         });
       }).catch(function(e) {
         console.error('Encryption init failed:', e);
+        // Signal mode: cannot start without encryption
+        if (urlMode === 'signal') {
+          console.error('Signal mode requires encryption — cannot start session');
+          return;
+        }
         // Start session without encryption as fallback
         startSession({
           id: sessionId,
@@ -967,17 +1064,26 @@ function init() {
           name: params.get('name') || 'Session',
           role: 'participant',
           expires_at: null,
+          mode: urlMode,
+          participantName: 'participant',
         });
       });
     } else {
-      startSession({
-        id: sessionId,
-        token: params.get('token'),
-        invite: null,
-        name: params.get('name') || 'Session',
-        role: 'participant',
-        expires_at: null,
-      });
+      // Signal mode without encryption key in URL: cannot proceed
+      if (urlMode === 'signal') {
+        console.error('Signal mode requires encryption key in URL fragment');
+      } else {
+        startSession({
+          id: sessionId,
+          token: params.get('token'),
+          invite: null,
+          name: params.get('name') || 'Session',
+          role: 'participant',
+          expires_at: null,
+          mode: urlMode,
+          participantName: 'participant',
+        });
+      }
     }
   } else {
     // Restore saved session from localStorage
@@ -1016,6 +1122,16 @@ function init() {
 
   // Run initial health check even before session
   getHealth();
+
+  // Mode selector buttons
+  var modeBtns = document.querySelectorAll('.mode-btn');
+  modeBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      modeBtns.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.selectedMode = btn.getAttribute('data-mode') || 'relay';
+    });
+  });
 
   // Bind session events
   document.getElementById('btn-create').addEventListener('click', createSession);

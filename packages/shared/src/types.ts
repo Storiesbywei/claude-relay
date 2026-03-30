@@ -13,6 +13,8 @@ export interface Session {
   lastActivityAt: Date;
   // Nostr pubkey → token lookup (for WS→HTTP bridge)
   nostrPubkeys: Map<string, string>;
+  /** Session mode: 'relay' (agent collaboration) or 'signal' (encrypted human messenger) */
+  mode?: 'relay' | 'signal';
 }
 
 export interface ParticipantInfo {

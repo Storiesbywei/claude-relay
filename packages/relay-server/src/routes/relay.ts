@@ -26,10 +26,23 @@ relayRoutes.post("/:session_id", async (c) => {
     );
   }
 
-  // Skip server-side content scanning for E2E encrypted payloads.
-  // The client runs the scanner BEFORE encryption (Scan-then-Seal pattern).
-  // The server cannot read encrypted content, so scanning would be meaningless.
-  if (!parsed.data.encrypted) {
+  const isSignalMode = session.mode === 'signal';
+
+  // Signal mode enforcement:
+  // 1. All messages MUST be encrypted — reject plaintext
+  if (isSignalMode && !parsed.data.encrypted) {
+    return c.json({ error: "Signal mode requires all messages to be encrypted" }, 400);
+  }
+
+  // 2. Reject messages from MCP origin (signal mode is human-to-human only)
+  if (isSignalMode && body.origin === 'mcp') {
+    return c.json({ error: "MCP tools are not allowed in signal mode" }, 403);
+  }
+
+  // Skip server-side content scanning for E2E encrypted payloads or signal mode.
+  // In relay mode: client runs the scanner BEFORE encryption (Scan-then-Seal pattern).
+  // In signal mode: no content scanning — humans don't need promptware protection.
+  if (!isSignalMode && !parsed.data.encrypted) {
     const gate = scanAndGateMessage(parsed.data.content, parsed.data.title, "http");
     if (!gate.allowed) {
       return c.json({ error: "Content blocked", warnings: gate.warnings }, 422);

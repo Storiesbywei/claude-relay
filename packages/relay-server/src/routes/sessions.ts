@@ -21,7 +21,7 @@ sessionRoutes.post("/", async (c) => {
     return c.json({ error: "Invalid request", details: parsed.error.issues }, 400);
   }
 
-  const { name, ttl_minutes, nostr_pubkey } = parsed.data;
+  const { name, ttl_minutes, nostr_pubkey, mode } = parsed.data;
   const sessionId = crypto.randomUUID();
   const creatorToken = crypto.randomUUID();
   const inviteToken = crypto.randomUUID();
@@ -32,7 +32,8 @@ sessionRoutes.post("/", async (c) => {
       name,
       creatorToken,
       inviteToken,
-      ttl_minutes ?? 60
+      ttl_minutes ?? 60,
+      mode ?? 'relay'
     );
 
     if (nostr_pubkey) {
@@ -45,6 +46,7 @@ sessionRoutes.post("/", async (c) => {
         creator_token: creatorToken,
         invite_token: inviteToken,
         expires_at: session.expiresAt.toISOString(),
+        mode: session.mode || 'relay',
         ...(nostr_pubkey && { nostr_pubkey }),
       },
       201
@@ -92,6 +94,7 @@ sessionRoutes.get("/:id", (c) => {
     created_at: session.createdAt.toISOString(),
     expires_at: session.expiresAt.toISOString(),
     last_activity_at: session.lastActivityAt.toISOString(),
+    mode: session.mode || 'relay',
   });
 });
 
@@ -136,6 +139,7 @@ sessionRoutes.post("/:id/join", async (c) => {
         participants: getParticipantNames(session),
         message_count: session.messages.length,
         expires_at: session.expiresAt.toISOString(),
+        mode: session.mode || 'relay',
         ...(nostrPubkey && { nostr_pubkey: nostrPubkey }),
       },
     });

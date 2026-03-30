@@ -70,6 +70,8 @@ export const CreateSessionRequestSchema = z.object({
     .default(LIMITS.DEFAULT_TTL_MINUTES)
     .optional(),
   nostr_pubkey: NostrPubkeySchema,
+  mode: z.enum(['relay', 'signal']).optional().default('relay')
+    .describe("Session mode: 'relay' for agent collaboration, 'signal' for encrypted human messenger"),
 });
 
 export const JoinSessionRequestSchema = z.object({

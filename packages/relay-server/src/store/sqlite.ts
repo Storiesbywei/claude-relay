@@ -37,7 +37,8 @@ db.exec(`
     sequence_counter INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL,
     expires_at      TEXT NOT NULL,
-    last_activity_at TEXT NOT NULL
+    last_activity_at TEXT NOT NULL,
+    mode            TEXT NOT NULL DEFAULT 'relay'
   );
 
   CREATE INDEX IF NOT EXISTS idx_sessions_creator_token ON sessions(creator_token);
@@ -125,6 +126,7 @@ const migrations: string[] = [
   "ALTER TABLE sessions ADD COLUMN pod_url TEXT",
   "ALTER TABLE sessions ADD COLUMN pod_synced_sequence INTEGER DEFAULT 0",
   "ALTER TABLE sessions ADD COLUMN solid_config TEXT",
+  "ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'relay'",
 ];
 
 for (const sql of migrations) {
@@ -158,8 +160,8 @@ db.exec(`
 
 const stmts = {
   insertSession: db.prepare(`
-    INSERT INTO sessions (id, name, creator_token, invite_token, sequence_counter, created_at, expires_at, last_activity_at)
-    VALUES ($id, $name, $creator_token, $invite_token, 0, $created_at, $expires_at, $last_activity_at)
+    INSERT INTO sessions (id, name, creator_token, invite_token, sequence_counter, created_at, expires_at, last_activity_at, mode)
+    VALUES ($id, $name, $creator_token, $invite_token, 0, $created_at, $expires_at, $last_activity_at, $mode)
   `),
 
   getSessionById: db.prepare(`
@@ -403,6 +405,7 @@ interface SessionRow {
   pod_url: string | null;
   pod_synced_sequence: number | null;
   solid_config: string | null;
+  mode: string | null;
 }
 
 interface ParticipantRow {
@@ -465,6 +468,7 @@ function rowToSession(row: SessionRow): Session {
     expiresAt: new Date(row.expires_at),
     lastActivityAt: new Date(row.last_activity_at),
     nostrPubkeys,
+    mode: (row.mode as 'relay' | 'signal') || 'relay',
   };
 }
 
@@ -494,7 +498,8 @@ export function createSession(
   name: string,
   creatorToken: string,
   inviteToken: string,
-  ttlMinutes: number
+  ttlMinutes: number,
+  mode: 'relay' | 'signal' = 'relay'
 ): Session {
   const count = (stmts.countSessions.get() as { cnt: number }).cnt;
   if (count >= LIMITS.MAX_SESSIONS) {
@@ -512,6 +517,7 @@ export function createSession(
     $created_at: now.toISOString(),
     $expires_at: expiresAt.toISOString(),
     $last_activity_at: now.toISOString(),
+    $mode: mode,
   });
 
   return {
@@ -526,6 +532,7 @@ export function createSession(
     expiresAt,
     lastActivityAt: now,
     nostrPubkeys: new Map(),
+    mode,
   };
 }
 
