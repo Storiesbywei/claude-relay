@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import * as client from "../client/relay-client.js";
 import { getActiveSession } from "../state.js";
+import { stageMessage, generatePreview } from "../approval/queue.js";
 
 // Common directories/files to skip
 const IGNORE_PATTERNS = new Set([
@@ -78,16 +78,20 @@ export function registerWorkspaceTool(server: McpServer) {
         const { readFile } = await import("node:fs/promises");
         const projectName = basename(project_dir);
 
-        // 1. Scan and send file tree
+        // 1. Scan file tree and stage through approval queue
         const treeLines = await scanDirectory(project_dir, "", 0, depth);
         const treeContent = `${projectName}/\n${treeLines.join("\n")}`;
 
-        await client.sendMessage(session_id, session.token, {
+        const pendingTree = stageMessage(session_id, {
           type: "file_tree",
+          title: `File tree: ${projectName}`,
           content: treeContent,
         });
 
-        // 2. Optionally send project summary
+        const pendingIds: string[] = [pendingTree.id];
+        const previews: string[] = [generatePreview(pendingTree)];
+
+        // 2. Optionally stage project summary through approval queue
         if (include_summary) {
           const summaryParts: string[] = [`# Project: ${projectName}\n`];
 
@@ -114,11 +118,13 @@ export function registerWorkspaceTool(server: McpServer) {
           }
 
           if (summaryParts.length > 1) {
-            await client.sendMessage(session_id, session.token, {
+            const pendingSummary = stageMessage(session_id, {
               type: "context",
               title: `Workspace: ${projectName}`,
               content: summaryParts.join("\n\n"),
             });
+            pendingIds.push(pendingSummary.id);
+            previews.push(generatePreview(pendingSummary));
           }
         }
 
@@ -126,13 +132,17 @@ export function registerWorkspaceTool(server: McpServer) {
           content: [{
             type: "text" as const,
             text: [
-              `Workspace shared with session!`,
+              `Workspace scan complete — ${pendingIds.length} message(s) staged for approval.`,
               ``,
-              `Sent file tree (${treeLines.length} entries, depth ${depth})`,
-              include_summary ? `Sent project summary (README, config files)` : ``,
+              `Scanned file tree (${treeLines.length} entries, depth ${depth})`,
+              include_summary ? `Scanned project summary (README, config files)` : ``,
               ``,
-              `The director can now see your project structure in the dashboard.`,
-              `Use relay_send with type "file_change" to share edits as you work.`,
+              `--- PREVIEWS ---`,
+              ...previews.map((p, i) => `[${i + 1}] pending_id: ${pendingIds[i]}\n${p}`),
+              `--- END PREVIEWS ---`,
+              ``,
+              `Call relay_approve with each pending_id to send, or action="list" to review all.`,
+              `Nothing has been transmitted to the relay yet.`,
             ].filter(Boolean).join("\n"),
           }],
         };
@@ -140,7 +150,7 @@ export function registerWorkspaceTool(server: McpServer) {
         return {
           content: [{
             type: "text" as const,
-            text: `Failed to share workspace: ${err.message}`,
+            text: `Failed to scan workspace: ${err.message}`,
           }],
           isError: true,
         };

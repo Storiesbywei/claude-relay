@@ -1,7 +1,14 @@
+// SECURITY WARNING: active-sessions.json contains Nostr nsec private keys
+// in plaintext. The file is written with mode 0600 and the directory with
+// mode 0700, but this is NOT equivalent to encrypted-at-rest storage.
+// Do NOT back up this file to cloud storage or share it.
+// TODO: Migrate to OS keychain (macOS Keychain / libsecret) for nsec storage.
+
 import type { ActiveSession } from "@claude-relay/shared";
-import { readFile, writeFile, mkdir, chmod } from "fs/promises";
+import { readFile, writeFile, mkdir, chmod, stat, open } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
+import { randomBytes } from "crypto";
 
 const STATE_DIR = join(homedir(), ".claude-relay");
 const STATE_FILE = join(STATE_DIR, "active-sessions.json");
@@ -59,5 +66,40 @@ export function updateCursor(sessionId: string, cursor: number): void {
   );
   if (session) {
     session.cursor = cursor;
+  }
+}
+
+/**
+ * Securely delete the state file by overwriting its contents with random
+ * bytes before unlinking. This prevents trivial recovery of nsec private
+ * keys from disk. Not a substitute for full-disk encryption, but raises
+ * the bar significantly against casual forensics.
+ */
+export async function secureDelete(): Promise<void> {
+  try {
+    const fileStat = await stat(STATE_FILE);
+    const fileSize = fileStat.size;
+
+    if (fileSize > 0) {
+      // Overwrite with random bytes (3 passes)
+      const fh = await open(STATE_FILE, "w");
+      try {
+        for (let pass = 0; pass < 3; pass++) {
+          await fh.write(randomBytes(fileSize), 0, fileSize, 0);
+          // Force flush to disk
+          await fh.sync();
+        }
+      } finally {
+        await fh.close();
+      }
+    }
+
+    // Now unlink
+    const { unlink } = await import("fs/promises");
+    await unlink(STATE_FILE);
+  } catch (err: any) {
+    if (err.code !== "ENOENT") {
+      console.error(`[relay-mcp] Failed to securely delete state: ${err.message}`);
+    }
   }
 }

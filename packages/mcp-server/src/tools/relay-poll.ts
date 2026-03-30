@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as client from "../client/relay-client.js";
 import { getActiveSession, updateCursor, saveState } from "../state.js";
+import { scanContent } from "../approval/scanner.js";
 
 export function registerPollTool(server: McpServer) {
   server.tool(
@@ -54,11 +55,26 @@ export function registerPollTool(server: McpServer) {
           };
         }
 
-        const formatted = result.messages
+        // Scan each message for suspicious content and attach warnings
+        const messagesWithWarnings = result.messages.map((m) => {
+          const scan = scanContent(m.content);
+          const titleScan = scanContent(m.title || "");
+          const allWarnings = [...scan.warnings, ...titleScan.warnings];
+          return {
+            ...m,
+            content_warnings: allWarnings.length > 0 ? allWarnings : undefined,
+            origin: m.sender_name || "unknown",
+          };
+        });
+
+        const formatted = messagesWithWarnings
           .map((m) => {
             let text = `## [${m.type}] ${m.title}\n`;
-            text += `From: ${m.sender_name || "unknown"} | Seq: ${m.sequence} | ${m.sent_at}\n\n`;
-            text += m.content;
+            text += `From: ${m.origin} | Seq: ${m.sequence} | ${m.sent_at}\n`;
+            if (m.content_warnings?.length) {
+              text += `\nCONTENT WARNINGS:\n${m.content_warnings.map((w) => `  - ${w}`).join("\n")}\n`;
+            }
+            text += `\n${m.content}`;
             if (m.tags?.length) {
               text += `\n\nTags: ${m.tags.join(", ")}`;
             }
