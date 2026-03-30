@@ -32,6 +32,8 @@ export interface StoredMessage {
   context?: { project?: string; stack?: string; branch?: string };
   sender_name?: string;
   sent_at: string;
+  /** Protocol origin: how this message entered the relay */
+  origin?: "http" | "nostr" | "solid" | "mcp";
   // Nostr event ID this message was created from (for dedup)
   nostr_event_id?: string;
   // Solid Pod resource URL this message was created from (for dedup)

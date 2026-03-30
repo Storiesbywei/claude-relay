@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { RelayMessagePayloadSchema, scanContent } from "@claude-relay/shared";
+import { RelayMessagePayloadSchema, scanContent, logScanEvent } from "@claude-relay/shared";
 import type { StoredMessage } from "@claude-relay/shared";
 import { addMessage, getMessages, getSession, getParticipantNames, subscribe } from "../store/sqlite.js";
 import { streamSSE } from "hono/streaming";
@@ -35,6 +35,7 @@ relayRoutes.post("/:session_id", async (c) => {
     allWarnings.push(...titleScan.warnings);
   }
   if (allWarnings.length > 0) {
+    logScanEvent("http", "blocked", allWarnings.join(", "));
     return c.json({ error: "Content blocked", warnings: allWarnings }, 422);
   }
 
@@ -44,6 +45,8 @@ relayRoutes.post("/:session_id", async (c) => {
   const senderName = (body.sender_name && typeof body.sender_name === "string")
     ? body.sender_name.slice(0, 100)
     : defaultName;
+
+  logScanEvent("http", "allowed");
 
   const message: StoredMessage = {
     message_id: crypto.randomUUID(),
@@ -56,6 +59,7 @@ relayRoutes.post("/:session_id", async (c) => {
     context: parsed.data.context,
     sender_name: senderName,
     sent_at: new Date().toISOString(),
+    origin: "http",
   };
 
   try {
