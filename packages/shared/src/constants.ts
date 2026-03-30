@@ -40,7 +40,7 @@ export const SESSION_TAG = "session";
 
 // Patterns that suggest sensitive content
 export const SENSITIVE_PATTERNS = [
-  /\b(sk-[a-zA-Z0-9]{20,})/,              // OpenAI/Anthropic keys
+  /\b(sk-[a-zA-Z0-9-]{20,})/,             // OpenAI/Anthropic keys (includes sk-proj-...)
   /\b(ghp_[a-zA-Z0-9]{36,})/,             // GitHub PATs
   /\b(AKIA[A-Z0-9]{16})/,                 // AWS access keys
   /\b(xox[bpsa]-[a-zA-Z0-9-]+)/,          // Slack tokens
@@ -50,6 +50,6 @@ export const SENSITIVE_PATTERNS = [
   /\/Users\/[a-zA-Z0-9_-]+\//,            // macOS absolute paths
   /\/home\/[a-zA-Z0-9_-]+\//,             // Linux absolute paths
   /[A-Z]:\\/,                              // Windows absolute paths
-  /nsec1[a-z0-9]{58}/,                    // Nostr nsec private keys
+  /nsec1[a-z0-9]{56,}/,                   // Nostr nsec private keys (bech32)
   /^[0-9a-f]{64}$/m,                      // Hex-encoded private keys (64 hex chars on own line)
 ];
