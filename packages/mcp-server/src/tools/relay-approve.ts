@@ -151,8 +151,17 @@ export function registerApproveTool(server: McpServer) {
             };
             encrypted = true;
           } catch (encErr: any) {
-            // Encryption failed — fall back to plaintext with warning
-            console.error(`[relay-mcp] Encryption failed, sending plaintext: ${encErr.message}`);
+            // SECURITY: Never fall back to plaintext — abort the send entirely.
+            // Sending plaintext when encryption was expected is a downgrade attack.
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Encryption failed — message NOT sent (plaintext fallback is disabled for security).\n\nError: ${encErr.message}`,
+                },
+              ],
+              isError: true,
+            };
           }
         }
 

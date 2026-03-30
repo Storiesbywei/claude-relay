@@ -220,9 +220,18 @@ export class NoiseTransportClient {
 
   /**
    * Tear down the noise session.
+   * Zeroizes key material in memory (best-effort — JS GC may retain copies).
    */
   destroy(): void {
+    if (this.session) {
+      this.session.keys.clientToServer.fill(0);
+      this.session.keys.serverToClient.fill(0);
+    }
     this.session = null;
+    if (this.serverPublicKey) {
+      // Server public key is, well, public — but zero it anyway for hygiene
+      this.serverPublicKey = null;
+    }
   }
 }
 

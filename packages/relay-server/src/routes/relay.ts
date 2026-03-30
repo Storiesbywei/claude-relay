@@ -44,6 +44,16 @@ relayRoutes.post("/:session_id", async (c) => {
     return c.json({ error: "Signal mode requires all messages to be encrypted" }, 400);
   }
 
+  // 1b. Title must not leak content in signal mode.
+  // Enforce that signal mode titles are generic (no more than a type label).
+  // Titles are stored as plaintext metadata — an adversary with server access
+  // could read them. Reject titles that appear to contain meaningful content.
+  if (isSignalMode && parsed.data.title && parsed.data.title.length > 50) {
+    return c.json({
+      error: "Signal mode: title must be <= 50 chars to prevent metadata leakage. Put details in encrypted content.",
+    }, 400);
+  }
+
   // 2. Reject messages from MCP origin UNLESS the agent has a valid trust token.
   //    Trusted agents (Level 2) are explicitly invited by a human and hold the
   //    session key — their messages are encrypted just like human messages.
@@ -151,6 +161,22 @@ relayRoutes.get("/:session_id", (c) => {
 
   try {
     const result = getMessages(sessionId, since, limit);
+
+    // SECURITY: Redact plaintext metadata for signal mode sessions.
+    // The server stores titles and sender names in plaintext — strip them
+    // from the poll response so a compromised server yields less metadata.
+    if (session.mode === 'signal') {
+      result.messages = result.messages.map((msg) => ({
+        ...msg,
+        type: "encrypted",
+        title: "",
+        sender_name: undefined,
+        tags: undefined,
+        references: undefined,
+        context: undefined,
+      }));
+    }
+
     return c.json(result);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);
@@ -165,6 +191,26 @@ relayRoutes.get("/:session_id/stream", (c) => {
     return c.json({ error: "Session not found" }, 404);
   }
 
+  const isSignalSession = session.mode === 'signal';
+
+  /**
+   * Strip plaintext metadata from signal mode messages before sending via SSE.
+   * The server should not expose titles, sender names, or types as they are
+   * unencrypted metadata that could reveal information about the conversation.
+   */
+  function redactForSignalMode(msg: StoredMessage): object {
+    if (!isSignalSession) return msg;
+    return {
+      message_id: msg.message_id,
+      sequence: msg.sequence,
+      type: "encrypted",
+      title: "",
+      content: msg.content, // ciphertext — opaque to server
+      sent_at: msg.sent_at,
+      encrypted: msg.encrypted,
+    };
+  }
+
   return streamSSE(c, async (stream) => {
     // Sprint 2: SSE catch-up -- replay missed messages on reconnect
     const lastEventId = c.req.header("Last-Event-ID");
@@ -175,7 +221,7 @@ relayRoutes.get("/:session_id/stream", (c) => {
         for (const msg of catchup.messages) {
           await stream.writeSSE({
             event: "message",
-            data: JSON.stringify(msg),
+            data: JSON.stringify(redactForSignalMode(msg)),
             id: String(msg.sequence),
           });
         }
@@ -190,7 +236,7 @@ relayRoutes.get("/:session_id/stream", (c) => {
     const unsubscribe = subscribe(sessionId, (msg) => {
       stream.writeSSE({
         event: "message",
-        data: JSON.stringify(msg),
+        data: JSON.stringify(redactForSignalMode(msg)),
         id: String(msg.sequence),
       }).catch(() => {});
     });
@@ -215,6 +261,17 @@ relayRoutes.get("/:session_id/export", (c) => {
   const session = getSession(sessionId);
   if (!session) {
     return c.json({ error: "Session not found" }, 404);
+  }
+
+  // SECURITY: Signal mode sessions must not expose metadata via server-side export.
+  // The server holds only ciphertext, but titles, sender names, types, and timestamps
+  // are stored in plaintext metadata. Exporting these would leak information that
+  // signal mode is designed to protect. Clients must decrypt and export locally.
+  if (session.mode === 'signal') {
+    return c.json({
+      error: "Export is disabled for signal mode sessions. Decrypt and export client-side.",
+      reason: "Server-side export would leak plaintext metadata (titles, sender names, timestamps) that signal mode is designed to protect.",
+    }, 403);
   }
 
   const format = (c.req.query("format") || "json").toLowerCase();

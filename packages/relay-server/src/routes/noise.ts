@@ -43,9 +43,7 @@ function initServerKeypair(): void {
     serverPrivateKey = fromBase64(stored.privateKey);
     serverPublicKey = fromBase64(stored.publicKey);
     serverPublicKeyB64 = stored.publicKey;
-    console.log(
-      `[noise] Loaded persisted server keypair (pubkey: ${serverPublicKeyB64.slice(0, 12)}...)`,
-    );
+    // Key loaded from DB — don't log any key material
     return;
   }
 
@@ -57,9 +55,7 @@ function initServerKeypair(): void {
 
   const privB64 = toBase64(kp.privateKey);
   setNoiseServerKeypair(privB64, serverPublicKeyB64);
-  console.log(
-    `[noise] Generated new server keypair (pubkey: ${serverPublicKeyB64.slice(0, 12)}...)`,
-  );
+  // Fresh keypair generated and persisted — don't log key material
 }
 
 // Initialize eagerly so the keypair is available for routes
@@ -160,9 +156,8 @@ noiseRoutes.post("/handshake", async (c) => {
   const ttlMs = 30 * 60 * 1000;
   createTransportSession(transportToken, keys, clientPubKey, ttlMs);
 
-  console.log(
-    `[noise] Handshake complete — transport session ${transportToken.slice(0, 8)}... established`,
-  );
+  // SECURITY: Do not log transport tokens — they grant transport-level access.
+  // An adversary with log access could hijack sessions.
 
   return c.json({
     transport_token: transportToken,

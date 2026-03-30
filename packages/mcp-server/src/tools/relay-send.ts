@@ -145,7 +145,16 @@ export function registerSendTool(server: McpServer) {
               } as any;
               encrypted = true;
             } catch (encErr: any) {
-              console.error(`[relay-mcp] Auto-approve encryption failed: ${encErr.message}`);
+              // SECURITY: Never fall back to plaintext — abort the send entirely.
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `Auto-approve encryption failed — message NOT sent (plaintext fallback is disabled for security).\n\nError: ${encErr.message}`,
+                  },
+                ],
+                isError: true,
+              };
             }
           }
 

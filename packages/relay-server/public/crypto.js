@@ -336,8 +336,13 @@ var relayCrypto = {
     return this._fingerprint;
   },
 
-  /** Clear encryption state (on session end) */
+  /** Clear encryption state (on session end).
+   * Zeroizes secret material in memory (best-effort — JS GC may retain copies). */
   clear() {
+    // Zeroize the raw secret before releasing
+    if (this._currentSecret) {
+      this._currentSecret.fill(0);
+    }
     this._sessionKey = null;
     this._fingerprint = null;
     this.enabled = false;

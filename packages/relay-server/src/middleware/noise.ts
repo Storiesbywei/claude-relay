@@ -104,12 +104,10 @@ export async function noiseMiddleware(c: Context, next: Next) {
     }
 
     if (declaredNonce !== expectedNonce) {
+      // SECURITY: Do not leak the expected nonce in the error response.
+      // An attacker who learns the expected nonce can craft a valid next request.
       return c.json(
-        {
-          error: "Nonce mismatch — possible replay attack",
-          expected: expectedNonce.toString(),
-          received: declaredNonce.toString(),
-        },
+        { error: "Nonce mismatch — possible replay attack" },
         400,
       );
     }
@@ -210,10 +208,16 @@ export async function noiseBodyMiddleware(c: Context, next: Next) {
 
 // ─── Utility ────────────────────────────────────────────────────────────────
 
+/**
+ * Constant-time comparison for nonces.
+ * Prevents timing side-channel attacks on nonce validation.
+ * Always compares all bytes regardless of where a mismatch occurs.
+ */
 function noncesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
+  let diff = 0;
   for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
+    diff |= a[i] ^ b[i];
   }
-  return true;
+  return diff === 0;
 }

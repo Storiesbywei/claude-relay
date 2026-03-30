@@ -114,13 +114,20 @@ export function advanceServerNonce(token: string): bigint | undefined {
 
 /**
  * Destroy a transport session (client disconnect or explicit teardown).
+ * Zeroizes key material before deletion to minimize exposure window.
  */
 export function destroyTransportSession(token: string): boolean {
+  const session = sessions.get(token);
+  if (session) {
+    zeroizeKeys(session.keys);
+    session.clientPublicKey.fill(0);
+  }
   return sessions.delete(token);
 }
 
 /**
  * Sweep expired transport sessions. Called periodically.
+ * Zeroizes key material before deletion.
  * @returns Number of sessions removed
  */
 export function sweepExpiredTransportSessions(): number {
@@ -128,11 +135,23 @@ export function sweepExpiredTransportSessions(): number {
   let swept = 0;
   for (const [token, session] of sessions) {
     if (session.expiresAt < now) {
+      zeroizeKeys(session.keys);
+      session.clientPublicKey.fill(0);
       sessions.delete(token);
       swept++;
     }
   }
   return swept;
+}
+
+/**
+ * Zeroize transport keys by overwriting with zeros.
+ * This is a best-effort defense — JavaScript's GC may retain copies,
+ * but this eliminates the most accessible reference.
+ */
+function zeroizeKeys(keys: TransportKeys): void {
+  keys.clientToServer.fill(0);
+  keys.serverToClient.fill(0);
 }
 
 /**

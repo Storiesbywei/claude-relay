@@ -36,7 +36,8 @@ export function setBroadcastFn(fn: (event: NostrEvent) => void): void {
 // Server keypair — used to sign events created via HTTP API (bridge events)
 const serverKeypair = generateKeypair();
 
-console.log(`[nostr] Bridge server pubkey: ${serverKeypair.npub}`);
+// SECURITY: Don't log the full npub — it can be used to correlate sessions.
+// The pubkey is available via the /health endpoint for authorized users.
 
 /** Convert a StoredMessage (from HTTP API) to a signed Nostr event */
 export function messageToEvent(msg: StoredMessage, sessionId?: string): NostrEvent {
