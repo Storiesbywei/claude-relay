@@ -26,9 +26,9 @@ import {
   type SolidExportConfig,
   type SolidExportResult,
   type StoredMessage,
-  type Session,
+  type Session as RelaySession,
 } from "@claude-relay/shared";
-import { getSession, getMessages, getParticipantNames } from "../store/sqlite.js";
+import { getSession, getParticipantNames } from "../store/sqlite.js";
 import { getAuthenticatedSession } from "./auth.js";
 
 /** Ensure a URL ends with "/" */
@@ -99,7 +99,7 @@ function messageToDataset(
 
 /** Serialize session metadata to a Solid Dataset */
 function sessionMetadataToDataset(
-  session: Session,
+  session: RelaySession,
   metadataUrl: string
 ): SolidDataset {
   let thing = createThing({ url: metadataUrl });
@@ -143,7 +143,7 @@ export async function exportSessionToPod(
   sessionId: string,
   config: SolidExportConfig
 ): Promise<SolidExportResult> {
-  // Fetch session from the in-memory store
+  // Fetch session from the store
   const session = getSession(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} not found`);

@@ -42,7 +42,10 @@ export async function getAuthenticatedSession(
     oidcIssuer: config.oidcIssuer,
     clientId: config.clientId,
     clientSecret: config.clientSecret,
-    // Client credentials grant — no interactive redirect
+    // Client credentials grant — no interactive redirect.
+    // Use Bearer tokens instead of DPoP — Bun's crypto does not support
+    // exporting non-extractable CryptoKeys as JWK, which DPoP requires.
+    tokenType: "Bearer",
   });
 
   if (!session.info.isLoggedIn) {

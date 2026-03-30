@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { exportSessionToPod } from "../solid/export.js";
-import { getSession, isValidToken } from "../store/memory.js";
+import { getSession } from "../store/sqlite.js";
 
 export const solidRoutes = new Hono();
 
@@ -41,6 +41,26 @@ solidRoutes.post("/:session_id/export", async (c) => {
     });
     return c.json(result, 201);
   } catch (err: any) {
-    return c.json({ error: `Solid export failed: ${err.message}` }, 500);
+    // Sanitize error message — never leak client_secret in responses
+    const safeMessage = (err.message || "Unknown error")
+      .replace(parsed.data.client_secret, "[REDACTED]");
+
+    // Distinguish network errors (Pod unreachable) from auth/logic errors
+    const isNetworkError =
+      err.code === "ECONNREFUSED" ||
+      err.code === "ENOTFOUND" ||
+      err.cause?.code === "ECONNREFUSED" ||
+      err.cause?.code === "ENOTFOUND" ||
+      safeMessage.includes("fetch failed");
+
+    if (isNetworkError) {
+      return c.json(
+        { error: `Solid Pod unreachable at ${parsed.data.pod_url}. Is the Pod server running?` },
+        502
+      );
+    }
+
+    console.error(`[solid] Export failed for session ${sessionId}: ${safeMessage}`);
+    return c.json({ error: `Solid export failed: ${safeMessage}` }, 500);
   }
 });
