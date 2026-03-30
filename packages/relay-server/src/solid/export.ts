@@ -32,19 +32,19 @@ import { getSession, getParticipantNames } from "../store/sqlite.js";
 import { getAuthenticatedSession } from "./auth.js";
 
 /** Ensure a URL ends with "/" */
-function ensureTrailingSlash(url: string): string {
+export function ensureTrailingSlash(url: string): string {
   return url.endsWith("/") ? url : url + "/";
 }
 
 /** Build the container URL for a session export */
-function buildContainerUrl(config: SolidExportConfig, sessionId: string): string {
+export function buildContainerUrl(config: SolidExportConfig, sessionId: string): string {
   const podBase = ensureTrailingSlash(config.podUrl);
   const containerPath = config.containerPath || "relay-sessions/";
   return `${podBase}${ensureTrailingSlash(containerPath)}${sessionId}/`;
 }
 
 /** Serialize a StoredMessage to a Solid Thing within a Dataset */
-function messageToDataset(
+export function messageToDataset(
   message: StoredMessage,
   resourceUrl: string
 ): SolidDataset {

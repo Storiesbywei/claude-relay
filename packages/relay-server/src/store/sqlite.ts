@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import type { Session, StoredMessage, ParticipantInfo } from "@claude-relay/shared";
+import type { Session, StoredMessage, ParticipantInfo, SolidExportConfig } from "@claude-relay/shared";
 import { LIMITS } from "@claude-relay/shared";
 
 // ---------------------------------------------------------------------------
@@ -88,6 +88,41 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_nostr_pubkeys_pubkey ON nostr_pubkeys(pubkey);
+`);
+
+// ---------------------------------------------------------------------------
+// Schema migration — idempotent ALTER TABLEs (fail silently if column exists)
+// ---------------------------------------------------------------------------
+
+const migrations: string[] = [
+  "ALTER TABLE sessions ADD COLUMN pod_url TEXT",
+  "ALTER TABLE sessions ADD COLUMN pod_synced_sequence INTEGER DEFAULT 0",
+  "ALTER TABLE sessions ADD COLUMN solid_config TEXT",
+];
+
+for (const sql of migrations) {
+  try {
+    db.exec(sql);
+  } catch (_err) {
+    // Column already exists — expected for idempotent migration
+  }
+}
+
+// Sync queue table — always safe with CREATE TABLE IF NOT EXISTS
+db.exec(`
+  CREATE TABLE IF NOT EXISTS solid_sync_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    message_sequence INTEGER NOT NULL,
+    status TEXT DEFAULT 'pending',
+    retry_count INTEGER DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(session_id, message_sequence)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON solid_sync_queue(status);
 `);
 
 // ---------------------------------------------------------------------------
@@ -205,6 +240,87 @@ const stmts = {
   isInviteTokenStmt: db.prepare(`
     SELECT 1 FROM sessions WHERE id = $session_id AND invite_token = $token LIMIT 1
   `),
+
+  // -------------------------------------------------------------------------
+  // Solid sync queue + config prepared statements
+  // -------------------------------------------------------------------------
+
+  enqueueSyncEntry: db.prepare(`
+    INSERT OR IGNORE INTO solid_sync_queue
+      (session_id, message_sequence, status, retry_count, last_error, created_at, updated_at)
+    VALUES ($session_id, $message_sequence, 'pending', 0, NULL, $now, $now)
+  `),
+
+  dequeueSyncBatch: db.prepare(`
+    SELECT * FROM solid_sync_queue
+    WHERE status = 'pending'
+    ORDER BY message_sequence ASC
+    LIMIT $limit
+  `),
+
+  markSyncInProgress: db.prepare(`
+    UPDATE solid_sync_queue SET status = 'in_progress', updated_at = $now
+    WHERE id = $id AND status = 'pending'
+  `),
+
+  markSyncCompleted: db.prepare(`
+    DELETE FROM solid_sync_queue WHERE id = $id
+  `),
+
+  markSyncFailed: db.prepare(`
+    UPDATE solid_sync_queue
+    SET status = CASE WHEN retry_count + 1 >= 15 THEN 'failed' ELSE 'pending' END,
+        retry_count = retry_count + 1,
+        last_error = $error,
+        updated_at = $now
+    WHERE id = $id
+  `),
+
+  requeueStaleSyncEntries: db.prepare(`
+    UPDATE solid_sync_queue
+    SET status = 'pending', updated_at = $now
+    WHERE status = 'in_progress'
+      AND updated_at < $stale_cutoff
+  `),
+
+  getSyncQueueDepth: db.prepare(`
+    SELECT COUNT(*) as cnt FROM solid_sync_queue
+    WHERE ($session_id IS NULL OR session_id = $session_id)
+      AND status IN ('pending', 'in_progress')
+  `),
+
+  getSyncQueueStats: db.prepare(`
+    SELECT
+      SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+      SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+    FROM solid_sync_queue
+  `),
+
+  getSolidConfig: db.prepare(`
+    SELECT solid_config FROM sessions WHERE id = $session_id
+  `),
+
+  setSolidConfig: db.prepare(`
+    UPDATE sessions
+    SET solid_config = $config, pod_url = $pod_url
+    WHERE id = $session_id
+  `),
+
+  getPodSyncedSequence: db.prepare(`
+    SELECT pod_synced_sequence FROM sessions WHERE id = $session_id
+  `),
+
+  setPodSyncedSequence: db.prepare(`
+    UPDATE sessions SET pod_synced_sequence = $sequence
+    WHERE id = $session_id AND pod_synced_sequence < $sequence
+  `),
+
+  getSolidEnabledSessions: db.prepare(`
+    SELECT id, solid_config, pod_synced_sequence
+    FROM sessions
+    WHERE solid_config IS NOT NULL
+  `),
 };
 
 // ---------------------------------------------------------------------------
@@ -226,6 +342,9 @@ interface SessionRow {
   created_at: string;
   expires_at: string;
   last_activity_at: string;
+  pod_url: string | null;
+  pod_synced_sequence: number | null;
+  solid_config: string | null;
 }
 
 interface ParticipantRow {
@@ -541,3 +660,54 @@ export function sweepExpiredSessions(): number {
 export function getSessionCount(): number {
   return (stmts.countSessions.get() as { cnt: number }).cnt;
 }
+
+// ---------------------------------------------------------------------------
+// Solid Pod sync — store helpers
+// ---------------------------------------------------------------------------
+
+/** Get the Solid export config for a session, or null if not configured */
+export function getSolidConfig(sessionId: string): SolidExportConfig | null {
+  const row = stmts.getSolidConfig.get({ $session_id: sessionId }) as { solid_config: string | null } | null;
+  if (!row?.solid_config) return null;
+  return JSON.parse(row.solid_config) as SolidExportConfig;
+}
+
+/** Set the Solid export config for a session (enables sync) */
+export function setSolidConfig(sessionId: string, config: SolidExportConfig): void {
+  stmts.setSolidConfig.run({
+    $session_id: sessionId,
+    $config: JSON.stringify(config),
+    $pod_url: config.podUrl,
+  });
+}
+
+/** Get the last synced sequence for a session */
+export function getPodSyncedSequence(sessionId: string): number {
+  const row = stmts.getPodSyncedSequence.get({ $session_id: sessionId }) as { pod_synced_sequence: number | null } | null;
+  return row?.pod_synced_sequence ?? 0;
+}
+
+/** Update the last synced sequence (only advances forward) */
+export function setPodSyncedSequence(sessionId: string, sequence: number): void {
+  stmts.setPodSyncedSequence.run({
+    $session_id: sessionId,
+    $sequence: sequence,
+  });
+}
+
+/** Get all sessions that have Solid sync enabled */
+export function getSolidEnabledSessions(): { sessionId: string; config: SolidExportConfig; lastSynced: number }[] {
+  const rows = stmts.getSolidEnabledSessions.all() as {
+    id: string;
+    solid_config: string;
+    pod_synced_sequence: number | null;
+  }[];
+  return rows.map((row) => ({
+    sessionId: row.id,
+    config: JSON.parse(row.solid_config) as SolidExportConfig,
+    lastSynced: row.pod_synced_sequence ?? 0,
+  }));
+}
+
+// Export the raw db instance for use by sync-queue.ts and other modules
+export { db };
