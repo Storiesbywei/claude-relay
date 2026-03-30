@@ -8,7 +8,7 @@ import {
   isValidToken,
   getParticipantNames,
   bindPubkeyToSession,
-} from "../store/memory.js";
+} from "../store/sqlite.js";
 
 export const sessionRoutes = new Hono();
 

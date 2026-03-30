@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getSessionCount } from "../store/memory.js";
+import { getSessionCount } from "../store/sqlite.js";
 import { getNostrStats } from "../nostr/handler.js";
 import { getServerNpub } from "../nostr/bridge.js";
 import { getPoolStatus } from "../nostr/relay-pool.js";

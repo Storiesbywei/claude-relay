@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { RelayMessagePayloadSchema } from "@claude-relay/shared";
 import type { StoredMessage } from "@claude-relay/shared";
-import { addMessage, getMessages, getSession, subscribe } from "../store/memory.js";
+import { addMessage, getMessages, getSession, subscribe } from "../store/sqlite.js";
 import { streamSSE } from "hono/streaming";
 import { bridgeMessageToNostr } from "../nostr/bridge.js";
 
