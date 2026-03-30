@@ -6,7 +6,7 @@ import {
   listPending,
   generatePreview,
 } from "../approval/queue.js";
-import { getActiveSession } from "../state.js";
+import { getActiveSession, getActiveSessions } from "../state.js";
 import * as client from "../client/relay-client.js";
 
 export function registerApproveTool(server: McpServer) {
@@ -25,9 +25,13 @@ export function registerApproveTool(server: McpServer) {
         ),
     },
     async ({ pending_id, action }) => {
-      // List all pending
+      // List pending — scoped to this MCP client's active sessions only
+      // to prevent cross-session information leakage
       if (action === "list") {
-        const pending = listPending();
+        const activeSessionIds = getActiveSessions().map((s) => s.session_id);
+        const pending = activeSessionIds.length > 0
+          ? activeSessionIds.flatMap((sid) => listPending(sid))
+          : [];
         if (pending.length === 0) {
           return {
             content: [

@@ -55,8 +55,17 @@ export function removePending(id: string): boolean {
   return pendingQueue.delete(id);
 }
 
-export function listPending(): PendingMessage[] {
-  return Array.from(pendingQueue.values());
+/**
+ * List pending messages, optionally scoped to a specific session.
+ * When sessionId is provided, only messages for that session are returned,
+ * preventing cross-session information leakage in the approval queue.
+ */
+export function listPending(sessionId?: string): PendingMessage[] {
+  const all = Array.from(pendingQueue.values());
+  if (sessionId) {
+    return all.filter((p) => p.sessionId === sessionId);
+  }
+  return all;
 }
 
 export function getPendingCount(): number {
