@@ -285,16 +285,19 @@ function autoResize(el) {
 // --------------- Init ---------------
 
 function init() {
-  // Restore saved session
-  const saved = localStorage.getItem('relay_session');
-  if (saved) {
-    try {
-      const sess = JSON.parse(saved);
-      if (sess.id && sess.token) {
-        startSession(sess);
-      }
-    } catch {
-      localStorage.removeItem('relay_session');
+  // URL param injection: ?sid=...&token=...&name=...
+  const params = new URLSearchParams(location.search);
+  if (params.get('sid') && params.get('token')) {
+    startSession({ id: params.get('sid'), token: params.get('token'), name: params.get('name') || 'Session' });
+    history.replaceState(null, '', location.pathname);
+  } else {
+    // Restore saved session from localStorage
+    const saved = localStorage.getItem('relay_session');
+    if (saved) {
+      try {
+        const sess = JSON.parse(saved);
+        if (sess.id && sess.token) startSession(sess);
+      } catch { localStorage.removeItem('relay_session'); }
     }
   }
 
