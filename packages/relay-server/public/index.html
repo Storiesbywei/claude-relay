@@ -48,6 +48,8 @@
         <code class="invite-token" id="invite-token"></code>
         <button class="btn btn-ghost btn-sm" id="btn-copy-invite">Copy</button>
         <span class="divider">|</span>
+        <button class="btn btn-ghost btn-sm" id="btn-export-pod" title="Export session to a Solid Pod">Export to Pod</button>
+        <span class="divider">|</span>
         <button class="btn btn-ghost btn-sm" id="btn-end-session">End</button>
       </div>
       <div class="join-controls" id="join-controls" style="display:none">
@@ -170,6 +172,38 @@
       <span id="nostr-info"></span>
       <span id="msg-total">0 messages relayed</span>
     </footer>
+  </div>
+
+  <!-- Solid Pod Export Modal -->
+  <div class="modal-overlay" id="solid-export-modal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Export to Solid Pod</h3>
+        <button class="btn-icon" id="btn-solid-cancel-x" title="Close">&#x2715;</button>
+      </div>
+      <div class="modal-body">
+        <label class="modal-label">Pod URL
+          <input type="text" id="solid-pod-url" class="modal-input" placeholder="https://pod.example/alice/">
+        </label>
+        <label class="modal-label">OIDC Issuer
+          <input type="text" id="solid-oidc-issuer" class="modal-input" placeholder="https://login.example.com/">
+        </label>
+        <label class="modal-label">Client ID
+          <input type="text" id="solid-client-id" class="modal-input" placeholder="relay-dashboard">
+        </label>
+        <label class="modal-label">Client Secret
+          <input type="password" id="solid-client-secret" class="modal-input" placeholder="secret">
+        </label>
+        <label class="modal-label">Container Path <span class="modal-hint">(optional)</span>
+          <input type="text" id="solid-container-path" class="modal-input" placeholder="relay-sessions/">
+        </label>
+        <div class="modal-status" id="solid-export-status"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost btn-sm" id="btn-solid-cancel">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="btn-solid-export">Export</button>
+      </div>
+    </div>
   </div>
 
   <script src="/app.js"></script>
