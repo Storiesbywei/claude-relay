@@ -178,9 +178,6 @@
         <span aria-hidden="true">&#x23F1;</span>
         <span id="signal-disappearing-duration"></span>
       </span>
-      <span class="signal-sealed-indicator" id="signal-sealed-indicator" style="display:none" aria-label="Sealed sender active">
-        Sender identity hidden from server
-      </span>
     </div>
 
     <!-- Content -->
@@ -262,10 +259,6 @@
             <span class="identity-label">npub</span>
             <span class="identity-value" id="id-npub">&mdash;</span>
           </div>
-          <div class="identity-row">
-            <span class="identity-label">pod</span>
-            <span class="identity-value" id="id-pod">&mdash;</span>
-          </div>
         </div>
 
         <div class="rail-divider" aria-hidden="true">
@@ -277,14 +270,14 @@
           <h3>Defense &amp; Tools</h3>
 
           <details class="rail-details" open>
-            <summary class="rail-section-title" id="defense-heading">Defense Scan</summary>
-            <ul class="defense-list" id="defense-list" aria-labelledby="defense-heading">
-              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Bearer auth gating <span class="sr-only">: passed</span></li>
-              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Content scanner <span class="sr-only">: passed</span></li>
-              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Rate limiter <span class="sr-only">: passed</span></li>
-              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> CORS restriction <span class="sr-only">: passed</span></li>
-              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> XSS escape <span class="sr-only">: passed</span></li>
-              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> TTL sweep <span class="sr-only">: passed</span></li>
+            <summary class="rail-section-title" id="defense-heading">Security Features</summary>
+            <ul class="defense-list" aria-labelledby="defense-heading">
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Bearer auth gating</li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Content scanner</li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> Rate limiter</li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> CORS restriction</li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> XSS escape</li>
+              <li role="listitem"><span class="defense-check pass" aria-hidden="true">&#10003;</span> TTL sweep</li>
             </ul>
           </details>
 
@@ -350,18 +343,18 @@
 
       <div class="setting-row">
         <label for="trust-agent-psk">Agent secret key</label>
-        <input type="text" id="trust-agent-psk" placeholder="Provided by the agent operator" style="width:100%">
-        <span class="setting-desc">A secret shared between you and the agent's operator, used to encrypt the access key</span>
+        <input type="text" id="trust-agent-psk" placeholder="Provided by the agent operator" style="width:100%" aria-describedby="trust-psk-desc">
+        <span class="setting-desc" id="trust-psk-desc">A secret shared between you and the agent's operator, used to encrypt the access key</span>
       </div>
 
-      <div class="trust-caps-section">
-        <div class="rail-sub-label">Permissions</div>
+      <fieldset class="trust-caps-section">
+        <legend class="rail-sub-label">Permissions</legend>
         <label class="trust-cap-row"><input type="checkbox" id="trust-cap-read" checked disabled> <span class="trust-cap-label">Can read messages</span></label>
         <label class="trust-cap-row"><input type="checkbox" id="trust-cap-write" checked> <span class="trust-cap-label">Can send messages</span></label>
         <label class="trust-cap-row"><input type="checkbox" id="trust-cap-auto-approve"> <span class="trust-cap-label">Skip approval queue (messages send immediately)</span></label>
         <label class="trust-cap-row"><input type="checkbox" id="trust-cap-bridge-nostr"> <span class="trust-cap-label">Bridge to Nostr</span></label>
         <label class="trust-cap-row"><input type="checkbox" id="trust-cap-bridge-solid"> <span class="trust-cap-label">Bridge to Solid Pod</span></label>
-      </div>
+      </fieldset>
 
       <div class="trust-modal-warning">
         <span class="trust-warning-icon" aria-hidden="true">&#x1F511;</span>
@@ -381,7 +374,7 @@
 
   <!-- ============ SETTINGS PANEL ============ -->
   <div class="settings-backdrop" id="settings-backdrop"></div>
-  <aside class="settings-panel" id="settings-panel" role="dialog" aria-modal="true" aria-label="Settings">
+  <div class="settings-panel" id="settings-panel" role="dialog" aria-modal="true" aria-label="Settings">
 
     <div class="settings-header">
       <h2>Settings</h2>
@@ -418,7 +411,7 @@
 
         <!-- Theme preview cards -->
         <div class="theme-preview-row" role="radiogroup" aria-label="Theme quick select">
-          <button class="theme-card theme-card--dark active" data-theme="dark" role="radio" aria-checked="false" aria-label="Dark theme" tabindex="0">
+          <button class="theme-card theme-card--dark" data-theme="dark" role="radio" aria-checked="false" aria-label="Dark theme" tabindex="0">
             <span class="theme-card-label">Dark</span>
           </button>
           <button class="theme-card theme-card--light" data-theme="light" role="radio" aria-checked="false" aria-label="Light theme" tabindex="-1">
@@ -440,7 +433,7 @@
         </div>
 
         <!-- Font preview -->
-        <div class="font-preview" id="font-preview">
+        <div class="font-preview" id="font-preview" aria-hidden="true">
           <div class="preview-serif">Protocol Chronicle</div>
           <div class="preview-sans">The quick brown fox jumps over the lazy dog.</div>
           <div class="preview-mono">const relay = new Session();</div>
@@ -449,7 +442,7 @@
         <div class="settings-slider-group">
           <label for="setting-font-size">Font Size</label>
           <div class="settings-slider-row">
-            <input type="range" id="setting-font-size" min="0" max="3" step="1" value="1" aria-label="Font size">
+            <input type="range" id="setting-font-size" min="0" max="3" step="1" value="1" aria-valuetext="Default">
             <span class="settings-slider-value" id="font-size-label">Default</span>
           </div>
         </div>
@@ -457,10 +450,10 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <label for="setting-mesh">Mesh Background</label>
-            <span class="setting-desc">Animated particle network behind content</span>
+            <span class="setting-desc" id="setting-mesh-desc">Animated particle network behind content</span>
           </div>
           <div class="toggle-switch">
-            <input type="checkbox" id="setting-mesh" checked>
+            <input type="checkbox" id="setting-mesh" checked aria-describedby="setting-mesh-desc">
             <span class="toggle-track"></span>
           </div>
         </div>
@@ -473,10 +466,10 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <label for="setting-reduced-motion">Reduced Motion</label>
-            <span class="setting-desc">Disable all animations and transitions</span>
+            <span class="setting-desc" id="setting-reduced-motion-desc">Disable all animations and transitions</span>
           </div>
           <div class="toggle-switch teal">
-            <input type="checkbox" id="setting-reduced-motion">
+            <input type="checkbox" id="setting-reduced-motion" aria-describedby="setting-reduced-motion-desc">
             <span class="toggle-track"></span>
           </div>
         </div>
@@ -484,10 +477,10 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <label for="setting-high-contrast">High Contrast</label>
-            <span class="setting-desc">Increase text and border contrast</span>
+            <span class="setting-desc" id="setting-high-contrast-desc">Increase text and border contrast</span>
           </div>
           <div class="toggle-switch teal">
-            <input type="checkbox" id="setting-high-contrast">
+            <input type="checkbox" id="setting-high-contrast" aria-describedby="setting-high-contrast-desc">
             <span class="toggle-track"></span>
           </div>
         </div>
@@ -495,10 +488,10 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <label for="setting-sr-announce">Screen Reader Announcements</label>
-            <span class="setting-desc">Announce new messages via live regions</span>
+            <span class="setting-desc" id="setting-sr-announce-desc">Announce new messages via live regions</span>
           </div>
           <div class="toggle-switch teal">
-            <input type="checkbox" id="setting-sr-announce">
+            <input type="checkbox" id="setting-sr-announce" aria-describedby="setting-sr-announce-desc">
             <span class="toggle-track"></span>
           </div>
         </div>
@@ -506,10 +499,10 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <label for="setting-simple-lang">Simple Language</label>
-            <span class="setting-desc">Use plain labels instead of archival language</span>
+            <span class="setting-desc" id="setting-simple-lang-desc">Use plain labels instead of archival language</span>
           </div>
           <div class="toggle-switch teal">
-            <input type="checkbox" id="setting-simple-lang">
+            <input type="checkbox" id="setting-simple-lang" aria-describedby="setting-simple-lang-desc">
             <span class="toggle-track"></span>
           </div>
         </div>
@@ -574,9 +567,9 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <label for="setting-poll-interval">Auto-poll Interval</label>
-            <span class="setting-desc">How often to check for new messages</span>
+            <span class="setting-desc" id="setting-poll-interval-desc">How often to check for new messages</span>
           </div>
-          <select id="setting-poll-interval">
+          <select id="setting-poll-interval" aria-describedby="setting-poll-interval-desc">
             <option value="2000">2 seconds</option>
             <option value="5000">5 seconds</option>
             <option value="10000">10 seconds</option>
@@ -587,10 +580,10 @@
         <div class="setting-row">
           <div class="setting-label-group">
             <label for="setting-origin-tags">Show Origin Tags</label>
-            <span class="setting-desc">Display protocol source on each message</span>
+            <span class="setting-desc" id="setting-origin-tags-desc">Display protocol source on each message</span>
           </div>
           <div class="toggle-switch">
-            <input type="checkbox" id="setting-origin-tags" checked>
+            <input type="checkbox" id="setting-origin-tags" checked aria-describedby="setting-origin-tags-desc">
             <span class="toggle-track"></span>
           </div>
         </div>
@@ -603,7 +596,7 @@
       <button class="settings-reset-btn" id="settings-reset" aria-label="Reset all settings to defaults">Reset to Defaults</button>
       <span class="settings-version">Protocol Chronicle v0.3</span>
     </div>
-  </aside>
+  </div><!-- /settings-panel -->
 
   <!-- Screen reader live region -->
   <div class="sr-live-region" id="sr-live" aria-live="polite" aria-atomic="true"></div>

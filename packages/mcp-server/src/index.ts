@@ -11,6 +11,7 @@ import { registerNostrPoolTool } from "./tools/relay-nostr-pool.js";
 import { registerSolidExportTool } from "./tools/relay-solid.js";
 import { registerSecurityTool } from "./tools/relay-security.js";
 import { registerTrustTool } from "./tools/relay-trust.js";
+import { registerWatchTool } from "./tools/relay-watch.js";
 import { loadState } from "./state.js";
 
 const server = new McpServer({
@@ -30,6 +31,7 @@ registerNostrPoolTool(server);     // relay_nostr_pool
 registerSolidExportTool(server);   // relay_export_pod
 registerSecurityTool(server);      // relay_security_status
 registerTrustTool(server);         // relay_trust_status
+registerWatchTool(server);         // relay_watch
 
 // Load persisted session state, then connect
 await loadState();

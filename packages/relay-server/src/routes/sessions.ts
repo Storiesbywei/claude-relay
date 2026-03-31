@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { CreateSessionRequestSchema, JoinSessionRequestSchema } from "@claude-relay/shared";
+import { CreateSessionRequestSchema, JoinSessionRequestSchema, LIMITS } from "@claude-relay/shared";
 import type { AgentCapability, StoredMessage, KeyRotationEvent } from "@claude-relay/shared";
 import {
   createSession,
@@ -18,6 +18,7 @@ import {
   recordKeyRotation,
   getSessionKeyVersion,
 } from "../store/sqlite.js";
+import { scanAndGateMessage } from "@claude-relay/shared";
 
 export const sessionRoutes = new Hono();
 
@@ -417,4 +418,96 @@ sessionRoutes.get("/:id/trust", (c) => {
       revoked_at: g.revoked_at,
     })),
   });
+});
+
+// ─── Agent Direct-Post Endpoint ─────────────────────────────────────────────
+//
+// Subagents (spawned by Claude Code) don't have MCP tool access, but they can
+// curl this endpoint to post status updates directly to the relay dashboard.
+// Auth: Bearer invite_token (shared by the director when spawning the agent).
+
+const agentRateLimit = new Map<string, number>(); // "sessionId:agentName" → last post epoch ms
+
+sessionRoutes.post("/:id/agent-post", async (c) => {
+  const id = c.req.param("id");
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return c.json({ error: "Missing Authorization header (use Bearer invite_token)" }, 401);
+  }
+
+  const token = authHeader.slice(7);
+
+  // Accept either the invite token or a valid session token (creator/participant)
+  const isInvite = isInviteToken(token, id);
+  const isValid = isValidToken(token, id);
+  if (!isInvite && !isValid) {
+    return c.json({ error: "Invalid token" }, 403);
+  }
+
+  const session = getSession(id);
+  if (!session) {
+    return c.json({ error: "Session not found" }, 404);
+  }
+
+  // Signal mode: agent-post is not allowed (must use trusted MCP flow)
+  if (session.mode === "signal") {
+    return c.json({ error: "Agent-post is not available in signal mode" }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const agentName = (typeof body.agent_name === "string" && body.agent_name.trim())
+    ? body.agent_name.trim().slice(0, 50)
+    : "agent";
+  const content = typeof body.content === "string" ? body.content : "";
+  const title = typeof body.title === "string" ? body.title.slice(0, LIMITS.MAX_TITLE_LENGTH) : "";
+  const type = typeof body.type === "string" && [
+    "status_update", "context", "insight", "question", "answer", "task",
+    "architecture", "patterns", "conventions", "file_tree", "file_change",
+    "file_read", "terminal", "api-docs",
+  ].includes(body.type) ? body.type : "status_update";
+
+  if (!content) {
+    return c.json({ error: "content is required" }, 400);
+  }
+  if (content.length > LIMITS.MAX_MESSAGE_SIZE) {
+    return c.json({ error: `content exceeds max size (${LIMITS.MAX_MESSAGE_SIZE})` }, 400);
+  }
+
+  // Rate limit: 1 post per 10 seconds per agent per session
+  const rateKey = `${id}:${agentName}`;
+  const now = Date.now();
+  const lastPost = agentRateLimit.get(rateKey) || 0;
+  if (now - lastPost < 10_000) {
+    const waitMs = 10_000 - (now - lastPost);
+    return c.json({ error: `Rate limited. Try again in ${Math.ceil(waitMs / 1000)}s` }, 429);
+  }
+  agentRateLimit.set(rateKey, now);
+
+  // Content scanning (same as relay mode)
+  const gate = scanAndGateMessage(content, title, "http");
+  if (!gate.allowed) {
+    return c.json({ error: "Content blocked", warnings: gate.warnings }, 422);
+  }
+
+  const message: StoredMessage = {
+    message_id: crypto.randomUUID(),
+    sequence: 0,
+    type,
+    title,
+    content,
+    sender_name: `agent:${agentName}`,
+    sent_at: new Date().toISOString(),
+    origin: "http",
+  };
+
+  try {
+    addMessage(id, message);
+    return c.json({
+      message_id: message.message_id,
+      sequence: message.sequence,
+      agent_name: agentName,
+    }, 201);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 400);
+  }
 });

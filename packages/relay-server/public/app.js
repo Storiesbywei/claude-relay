@@ -711,8 +711,10 @@ async function renderMessageWithDecrypt(msg) {
 function renderMessage(msg) {
   var typeInfo = API_TYPE_MAP[msg.type] || API_TYPE_MAP['context'];
   var senderName = msg.sender_name || 'unknown';
+  var isAgent = senderName.startsWith('agent:');
+  var displayName = isAgent ? senderName.slice(6) : senderName;
   var color = getAvatarColor(senderName);
-  var initial = senderName[0].toUpperCase();
+  var initial = isAgent ? '\u2699' : senderName[0].toUpperCase();
   var time = formatTime(msg.sent_at);
 
   state.folioCount++;
@@ -791,8 +793,9 @@ function renderMessage(msg) {
     '</div>' +
     '<div class="entry-card">' +
       '<div class="ec-header">' +
-        '<div class="ec-avatar" style="background:' + color + '">' + initial + '</div>' +
-        '<span class="ec-author">' + escapeHtml(senderName) + '</span>' +
+        '<div class="ec-avatar' + (isAgent ? ' ec-avatar-agent' : '') + '" style="background:' + color + '">' + initial + '</div>' +
+        '<span class="ec-author">' + escapeHtml(displayName) + '</span>' +
+        (isAgent ? '<span class="ec-agent-badge">agent</span>' : '') +
         signalIndicators +
         '<span class="ec-pill ' + typeInfo.pill + '">' + typeInfo.label + '</span>' +
         '<span class="ec-relative">' + relativeTime(msg.sent_at) + '</span>' +
@@ -1353,7 +1356,7 @@ var SETTINGS_DEFAULTS = {
   meshEnabled: true,
   reducedMotion: false,
   highContrast: false,
-  screenReaderAnnounce: false,
+  screenReaderAnnounce: true,
   simpleLanguage: false,
   pollInterval: 2000,
   showOriginTags: true,
@@ -1507,7 +1510,9 @@ function syncSettingsUI() {
     var idx = FONT_SIZE_STEPS.indexOf(settings.fontSize);
     fontSizeEl.value = idx >= 0 ? idx : 1;
   }
-  if (fontSizeLabel) fontSizeLabel.textContent = FONT_SIZE_LABELS[settings.fontSize] || 'Default';
+  var fontSizeLabelText = FONT_SIZE_LABELS[settings.fontSize] || 'Default';
+  if (fontSizeLabel) fontSizeLabel.textContent = fontSizeLabelText;
+  if (fontSizeEl) fontSizeEl.setAttribute('aria-valuetext', fontSizeLabelText);
 
   // Mesh toggle
   var meshEl = document.getElementById('setting-mesh');
@@ -1565,13 +1570,19 @@ function syncSettingsUI() {
 
 function syncThemeCards(currentTheme) {
   var cards = document.querySelectorAll('.theme-card[data-theme]');
+  var anyActive = false;
   cards.forEach(function(card) {
     var cardTheme = card.getAttribute('data-theme');
     var isActive = (cardTheme === currentTheme);
     card.classList.toggle('active', isActive);
     card.setAttribute('aria-checked', String(isActive));
     card.setAttribute('tabindex', isActive ? '0' : '-1');
+    if (isActive) anyActive = true;
   });
+  // Ensure at least one card is keyboard-reachable
+  if (!anyActive && cards.length > 0) {
+    cards[0].setAttribute('tabindex', '0');
+  }
 }
 
 // --------------- Settings Panel Open / Close ---------------
@@ -1626,9 +1637,9 @@ function _settingsKeyHandler(e) {
   if (e.key === 'Tab') {
     var panel = document.getElementById('settings-panel');
     if (!panel) return;
-    var focusable = panel.querySelectorAll(
+    var focusable = Array.from(panel.querySelectorAll(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
+    )).filter(function(el) { return el.offsetParent !== null; });
     if (focusable.length === 0) return;
 
     var first = focusable[0];
@@ -1664,6 +1675,7 @@ function announceMessage(msg) {
   var announcer = dom.ariaAnnouncer;
   if (!announcer) return;
   var sender = msg.sender_name || 'unknown';
+  if (sender.startsWith('agent:')) sender = 'agent ' + sender.slice(6);
   var type = msg.type || 'message';
   announcer.textContent = sender + ' sent a ' + type + ': ' + (msg.content || '').slice(0, 100);
   // Clear after delay so repeated messages are re-announced
@@ -1734,6 +1746,41 @@ function initSettings() {
     });
   });
 
+  // Theme card arrow key navigation (WAI-ARIA radiogroup pattern)
+  var themeCardContainer = document.querySelector('.theme-preview-row');
+  if (themeCardContainer) {
+    themeCardContainer.addEventListener('keydown', function(e) {
+      var cards = Array.from(document.querySelectorAll('.theme-card[data-theme]'));
+      var currentIndex = cards.indexOf(document.activeElement);
+      if (currentIndex < 0) return;
+      var nextIndex = -1;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        nextIndex = (currentIndex + 1) % cards.length;
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        nextIndex = (currentIndex - 1 + cards.length) % cards.length;
+      }
+      if (nextIndex >= 0) {
+        e.preventDefault();
+        cards[nextIndex].focus();
+        cards[nextIndex].click();
+      }
+    });
+  }
+
+  // Segmented control arrow key navigation (WAI-ARIA radiogroup pattern)
+  var segTrack = document.querySelector('.settings-segmented');
+  if (segTrack) {
+    segTrack.addEventListener('keydown', function(e) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (segAdvanced) { segAdvanced.focus(); segAdvanced.click(); }
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (segSimple) { segSimple.focus(); segSimple.click(); }
+      }
+    });
+  }
+
   // Font dropdown
   var fontEl = document.getElementById('setting-font');
   if (fontEl) {
@@ -1764,8 +1811,10 @@ function initSettings() {
     fontSizeEl.addEventListener('input', function() {
       var step = FONT_SIZE_STEPS[parseInt(this.value, 10)] || 'default';
       saveSetting('fontSize', step);
+      var labelText = FONT_SIZE_LABELS[step] || 'Default';
       var label = document.getElementById('font-size-label');
-      if (label) label.textContent = FONT_SIZE_LABELS[step] || 'Default';
+      if (label) label.textContent = labelText;
+      this.setAttribute('aria-valuetext', labelText);
     });
   }
 
@@ -1945,21 +1994,25 @@ function updateKeyVersionBadge() {
   }
 }
 
+var _trustTrigger = null;
+
 /**
  * Open the trust modal for granting trust to a new agent.
  */
 function openTrustModal() {
+  _trustTrigger = document.activeElement;
   var backdrop = document.getElementById('trust-modal-backdrop');
   var modal = document.getElementById('trust-modal');
   var error = document.getElementById('trust-modal-error');
   if (backdrop) backdrop.style.display = '';
   if (modal) modal.style.display = '';
   if (error) error.textContent = '';
-  // Clear inputs
+  // Clear and focus first input
   var agentInput = document.getElementById('trust-agent-id');
   var pskInput = document.getElementById('trust-agent-psk');
-  if (agentInput) agentInput.value = '';
+  if (agentInput) { agentInput.value = ''; agentInput.focus(); }
   if (pskInput) pskInput.value = '';
+  document.addEventListener('keydown', _trustKeyHandler);
 }
 
 /**
@@ -1970,6 +2023,30 @@ function closeTrustModal() {
   var modal = document.getElementById('trust-modal');
   if (backdrop) backdrop.style.display = 'none';
   if (modal) modal.style.display = 'none';
+  document.removeEventListener('keydown', _trustKeyHandler);
+  if (_trustTrigger && typeof _trustTrigger.focus === 'function') {
+    _trustTrigger.focus();
+  }
+  _trustTrigger = null;
+}
+
+function _trustKeyHandler(e) {
+  if (e.key === 'Escape') { e.preventDefault(); closeTrustModal(); return; }
+  if (e.key === 'Tab') {
+    var modal = document.getElementById('trust-modal');
+    if (!modal) return;
+    var focusable = Array.from(modal.querySelectorAll(
+      'button, input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter(function(el) { return el.offsetParent !== null; });
+    if (focusable.length === 0) return;
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
 }
 
 /**
@@ -2233,6 +2310,10 @@ function openKeyVerification() {
   } else if (qrText) {
     qrText.textContent = '(no key to display)';
   }
+
+  // Focus the close button so keyboard/SR users know the panel appeared
+  var closeBtn = document.getElementById('btn-close-verify');
+  if (closeBtn) closeBtn.focus();
 }
 
 function closeKeyVerification() {

@@ -1036,6 +1036,23 @@ a:hover { text-decoration: underline; }
 .pill-insight { background: rgba(192,132,252,0.12); color: var(--t-insight); }
 .pill-event { background: rgba(110,231,183,0.12); color: var(--sage); }
 
+.ec-avatar-agent {
+  font-size: 14px;
+  line-height: 28px;
+}
+.ec-agent-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(14,210,184,0.15);
+  color: var(--teal);
+  border: 1px solid rgba(14,210,184,0.25);
+}
+
 .ec-relative {
   font-family: var(--mono);
   font-size: 10px;
@@ -1517,9 +1534,13 @@ body.settings-open { overflow: hidden; }
 }
 .toggle-switch input {
   opacity: 0;
-  width: 0;
-  height: 0;
+  width: 100%;
+  height: 100%;
   position: absolute;
+  inset: 0;
+  cursor: pointer;
+  z-index: 1;
+  margin: 0;
 }
 .toggle-track {
   position: absolute;
@@ -1757,9 +1778,9 @@ html[data-reduced-motion] .settings-backdrop {
 .theme-card--light::before, .theme-card--light::after { background: rgba(0,0,0,0.08); }
 .theme-card--oled::before, .theme-card--oled::after { background: rgba(255,255,255,0.06); }
 .theme-card-label { position: absolute; bottom: 6px; left: 8px; font-family: var(--mono); font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
-.theme-card--dark .theme-card-label { color: rgba(255,255,255,0.25); }
-.theme-card--light .theme-card-label { color: rgba(0,0,0,0.25); }
-.theme-card--oled .theme-card-label { color: rgba(255,255,255,0.18); }
+.theme-card--dark .theme-card-label { color: rgba(255,255,255,0.6); }
+.theme-card--light .theme-card-label { color: rgba(0,0,0,0.5); }
+.theme-card--oled .theme-card-label { color: rgba(255,255,255,0.55); }
 .font-preview { padding: 14px 16px; background: var(--code-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-sm); margin-top: 8px; color: var(--text-secondary); line-height: 1.6; }
 .font-preview .preview-serif { font-family: var(--serif); font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
 .font-preview .preview-sans { font-family: var(--sans); font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
@@ -2035,6 +2056,8 @@ html[data-mode="signal"] .mast-title {
 
 .trust-caps-section {
   margin: 12px 0;
+  border: none;
+  padding: 0;
 }
 
 .trust-cap-row {
@@ -2294,14 +2317,6 @@ html[data-mode="signal"] .mast-title {
   border: 1px solid rgba(232, 160, 32, 0.15);
   border-radius: 12px;
   padding: 2px 10px;
-}
-
-.signal-sealed-indicator {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-tertiary);
-  border-left: 1px solid rgba(14, 210, 184, 0.2);
-  padding-left: 10px;
 }
 
 /* ===== UX Audit: Encrypted Message Cards in Signal Mode ===== */
@@ -2575,16 +2590,6 @@ html[data-mode="signal"] .folio-entry.self-message .entry-card {
     gap: 6px;
     justify-content: center;
     font-size: 10px;
-  }
-
-  .signal-sealed-indicator {
-    border-left: none;
-    padding-left: 0;
-    width: 100%;
-    text-align: center;
-    border-top: 1px solid rgba(14, 210, 184, 0.1);
-    padding-top: 6px;
-    margin-top: 2px;
   }
 
   /* Timer buttons wrap on small screens */
